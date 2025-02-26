@@ -11,6 +11,7 @@ void error(char *msg){
     exit(0);
 }
 
+
 int main(int argc, char *argv[]){
     int sock, length, fromlen, n;
     struct sockaddr_in server;
