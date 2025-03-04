@@ -676,12 +676,10 @@ int main(){
                                     ((unsigned char)ctsResp[ctsRespFcsPos+3]);
     if(ctsRespComputedFCS != ctsRespReceivedFCS){
         printf("FCS mismatch in CTS Response: computed %u, received %u\n", ctsRespComputedFCS, ctsRespReceivedFCS);
-        close(sockfd);
-        exit(EXIT_FAILURE);
     } else {
         printf("Client: CTS Response FCS verified successfully: %u.\n", ctsRespComputedFCS);
     }
-
+    drainUDPSocket(sockfd);
     //send data frame
     char dataFrame[3000];
     int dOffset = 0;
@@ -878,7 +876,7 @@ int main(){
     if(n < 0){
         printf("Client: No response from server within 3 seconds.\n");
     }
-
+    drainUDPSocket(sockfd);
     //multiple frames
     char multiRTS[3000];
     int mOffset = 0;
@@ -955,6 +953,7 @@ int main(){
     } else { 
         printf("Client: Multi-Frame RTS sent with Duration ID 12, FCS computed as %u (frame size: %d bytes).\n", multiRTSChecksum, multiRTSSize);
     }
+    drainUDPSocket(sockfd);
 
     //5 fragmented (correct) data frames with decreasing Duration IDs
     for (int i = 0; i < 5; i++) {
@@ -1044,6 +1043,7 @@ int main(){
         int ackReceived = 0;
 
         while (retry < 3 && !ackReceived) {
+            drainUDPSocket(sockfd);
             //send the fragment
             int sentBytes = sendto(sockfd, fragFrame, fragFrameSize, 0,
                                 (struct sockaddr *)&servaddr, sizeof(servaddr));
