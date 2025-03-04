@@ -11,9 +11,6 @@
 
 #define MAX_PAYLOAD 2312
 
-static uint16_t ackedSeqControls[512];
-static int ackedSeqCount = 0;
-
 void error(char *msg){
     perror(msg);
     exit(0);
@@ -161,8 +158,7 @@ int main(){
                 printf("AP: FCS Error detected. Computed FCS = %u, but Received FCS = %u. Sending error message.\n", computedFCS, receivedFCS);
             }
             char errorMsg[] = "FCS (Frame Check Sequence) Error";
-            printf("AP: FCS (Frame Check Sequence) Error");
-            //n = sendto(sock, errorMsg, sizeof(errorMsg), 0, (struct sockaddr *)&from, fromlen);
+            printf("AP: FCS (Frame Check Sequence) Error\n");
             if (n < 0) { 
                 error("sendto"); 
             }
@@ -437,28 +433,6 @@ int main(){
                     fcByte1, fcByte2, seqControl, (fragNum + 1),
                     moreFragments ? "true" : "false");
 
-                // 1) Check if we've already ACKed this seqControl
-                bool alreadyAcked = false;
-                for (int i = 0; i < ackedSeqCount; i++) {
-                    if (ackedSeqControls[i] == seqControl) {
-                        alreadyAcked = true;
-                        break;
-                    }
-                }
-
-                if (alreadyAcked) {
-                    // We do NOT re-ACK. Just ignore or print a message:
-                    printf("AP: Already ACKed seqControl=0x%04X. No new ACK sent.\n", seqControl);
-                    continue;  // skip building a new ACK frame
-                }
-
-                // 2) Otherwise mark it as ACKed
-                if (ackedSeqCount < 512) {
-                    ackedSeqControls[ackedSeqCount++] = seqControl;
-                } else {
-                    // If you run out of space, either expand the array or handle error
-                    printf("AP: ackedSeqControls array is full! Consider increasing its size.\n");
-                }
             
                 char ackFrame[3000];
                 int aOffset = 0;
@@ -543,11 +517,6 @@ int main(){
             
                 continue;
             }
-        }
-        
-        n = sendto(sock, "Got your message\n", 17, 0, (struct sockaddr *)&from, fromlen);
-        if (n < 0){
-            error("sendto");
         }
     }
     
