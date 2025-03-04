@@ -76,17 +76,27 @@ uint32_t getCheckSumValue(const void *ptr, size_t size, ssize_t bytesToSkipFromS
     return checkSumValue;
 }
 
-int main(int argc, char *argv[]){
+void debugHexDump(const unsigned char* data, int length, const char* label)
+{
+    printf("=== HEX DUMP of %s (length %d) ===\n", label, length);
+
+    // Print 16 bytes per line for readability
+    for (int i = 0; i < length; i++) {
+        if (i % 16 == 0) {
+            printf("\n%04X: ", i);
+        }
+        printf("%02X ", data[i]);
+    }
+    printf("\n=== END of HEX DUMP ===\n\n");
+}
+
+
+int main(){
     int sock, length, fromlen, n;
     struct sockaddr_in server;
     struct sockaddr_in from;
     char buf[3000];
     static int associated = 0; //flag to track if a client is already associated
-
-    if (argc < 2){
-        fprintf(stderr, "ERROR, no port provided\n");
-        exit(0);
-    }
 
     sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock < 0){
@@ -96,7 +106,7 @@ int main(int argc, char *argv[]){
     bzero(&server, length);
     server.sin_family = AF_INET;
     server.sin_addr.s_addr = INADDR_ANY;
-    server.sin_port = htons(atoi(argv[1]));
+    server.sin_port = htons(4547);
     if (bind(sock, (struct sockaddr *)&server, length) < 0){
         error("binding");
     }
@@ -104,11 +114,10 @@ int main(int argc, char *argv[]){
 
     while(1){
         n = recvfrom(sock, buf, sizeof(buf), 0, (struct sockaddr *)&from, &fromlen);
+        //debugHexDump((const unsigned char*)buf, n, "Frame from Client");
         if (n < 0){
             error("recvfrom");
         }
-        
-        printf("Received %d bytes\n", n);
 
         if (n < 40) { 
             printf("Packet too short to be a valid 802.11 frame. Ignoring.\n");
@@ -438,7 +447,7 @@ int main(int argc, char *argv[]){
             
                 //Frame Control for ACK: Type=1, Subtype=1101 -> 0x1D,
                 //AP->Client -> second byte=0x02 (FromDS=1, ToDS=0)
-                ackFrame[aOffset++] = 0x1D; // (binary 00011101)
+                ackFrame[aOffset++] = 0xD4; // (binary 00011101)
                 ackFrame[aOffset++] = 0x02;
             
                 //duration ID = 1
@@ -505,6 +514,7 @@ int main(int argc, char *argv[]){
                 if (ackSendBytes < 0) {
                     error("sendto");
                 }
+                //debugHexDump((const unsigned char*)ackFrame, ackFrameSize, "ACK Frame to Client");
             
                 printf("AP: Built ACK for Data Frame (Frag %u, seq=0x%04X) with FCS=%u. Sent ACK (size %d bytes).\n",
                        fragNum + 1, seqControl, ackChecksum, ackFrameSize);

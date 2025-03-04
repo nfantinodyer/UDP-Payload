@@ -75,77 +75,176 @@ uint32_t getCheckSumValue(const void *ptr, size_t size, ssize_t bytesToSkipFromS
     return checkSumValue;
 }
 
-bool isValidAckFrame(const char* frame, int frameLen)
+void debugHexDump(const unsigned char* data, int length, const char* label)
 {
-    // 1) Minimal length check
+    printf("=== HEX DUMP of %s (length %d) ===\n", label, length);
+
+    // Print 16 bytes per line for readability
+    for (int i = 0; i < length; i++) {
+        if (i % 16 == 0) {
+            printf("\n%04X: ", i);
+        }
+        printf("%02X ", data[i]);
+    }
+    printf("\n=== END of HEX DUMP ===\n\n");
+}
+
+
+bool isValidAckFrame(const unsigned char* frame, int frameLen)
+{
+    printf("\n[DEBUG isValidAckFrame] Called with frameLen=%d\n", frameLen);
+    //debugHexDump(frame, frameLen, "Candidate ACK Frame");
+
+    
     if (frameLen < 40) {
-        // At least enough for addresses + start/end markers + FCS
+        printf("[DEBUG isValidAckFrame] FAIL: frameLen < 40\n");
+        return false;
+    }
+    /*
+
+    
+    if (frame[0] != 0xFF || frame[1] != 0xFF) {
+        printf("[DEBUG isValidAckFrame] FAIL: Missing 0xFF 0xFF at start.\n");
         return false;
     }
 
-    // 2) Check the start-of-frame
-    if ((unsigned char)frame[0] != 0xFF || (unsigned char)frame[1] != 0xFF) {
+    if (frame[frameLen - 2] != 0xFF || frame[frameLen - 1] != 0xFF) {
+        printf("[DEBUG isValidAckFrame] FAIL: Missing 0xFF 0xFF at end.\n");
         return false;
     }
+    */
 
-    // 3) Check the end-of-frame
-    if ((unsigned char)frame[frameLen - 2] != 0xFF ||
-        (unsigned char)frame[frameLen - 1] != 0xFF) {
-        return false;
-    }
-
-    // 4) Recompute FCS, compare to received
+    // 4) Recompute FCS
     uint32_t computedFCS = getCheckSumValue(frame, frameLen, 0, 6);
+    printf("[DEBUG isValidAckFrame] Computed FCS=%u (0x%08X)\n", 
+           computedFCS, computedFCS);
+
+    // 5) Extract received FCS
     int fcsPos = frameLen - 6;
-    uint32_t receivedFCS =
-        ((unsigned char)frame[fcsPos] << 24) |
-        ((unsigned char)frame[fcsPos + 1] << 16) |
-        ((unsigned char)frame[fcsPos + 2] << 8)  |
-         (unsigned char)frame[fcsPos + 3];
+    uint32_t receivedFCS = ((uint32_t)frame[fcsPos] << 24) |
+                           ((uint32_t)frame[fcsPos + 1] << 16) |
+                           ((uint32_t)frame[fcsPos + 2] <<  8) |
+                           ((uint32_t)frame[fcsPos + 3]);
+    printf("[DEBUG isValidAckFrame] Received FCS=%u (0x%08X)\n", 
+           receivedFCS, receivedFCS);
 
     if (computedFCS != receivedFCS) {
+        printf("[DEBUG isValidAckFrame] FAIL: computedFCS != receivedFCS\n");
         return false;
     }
 
-    // 5) Check Frame Control for ACK
-    // Typically: Type=1 (bits [3..2] =1), Subtype=1101 => fcByte1=0x1D
-    // AP->client => second byte=0x02 for (FromDS=1, ToDS=0)
-    unsigned char fcByte1 = (unsigned char)frame[2]; // e.g. 0x1D
-    unsigned char fcByte2 = (unsigned char)frame[3]; // e.g. 0x02
-    if (fcByte1 != 0x1D || fcByte2 != 0x02) {
+    // 6) Decode Frame Control
+    unsigned char fcByte1 = frame[2];
+    unsigned char fcByte2 = frame[3];
+    printf("[DEBUG isValidAckFrame] fcByte1=0x%02X fcByte2=0x%02X\n", fcByte1, fcByte2);
+
+    unsigned int protocolVersion = (fcByte1 & 0x03);            // bits [1..0]
+    unsigned int frameType       = (fcByte1 >> 2) & 0x03;        // bits [3..2]
+    unsigned int frameSubtype    = (fcByte1 >> 4) & 0x0F;        // bits [7..4]
+
+    bool toDS      = ((fcByte2 & 0x01) != 0); // bit [0]
+    bool fromDS    = ((fcByte2 & 0x02) != 0); // bit [1]
+
+    printf("[DEBUG isValidAckFrame] Parsed FC -> protocolVer=%u type=%u subtype=%u toDS=%d fromDS=%d\n",
+           protocolVersion, frameType, frameSubtype, toDS, fromDS);
+
+    if (protocolVersion != 0) {
+        printf("[DEBUG isValidAckFrame] FAIL: protocolVersion != 0\n");
+        return false;
+    }
+    if (frameType != 1) {
+        printf("[DEBUG isValidAckFrame] FAIL: frameType != 1\n");
+        return false;
+    }
+    if (frameSubtype != 13) {
+        printf("[DEBUG isValidAckFrame] FAIL: frameSubtype != 13\n");
+        return false;
+    }
+    if (toDS != false) {
+        printf("[DEBUG isValidAckFrame] FAIL: toDS != false\n");
+        return false;
+    }
+    if (fromDS != true) {
+        printf("[DEBUG isValidAckFrame] FAIL: fromDS != true\n");
         return false;
     }
 
-    // 6) Optionally parse the 2312-byte payload to see if it references "ACK for Seq="
-    // After the 2-byte start-of-frame, 2-byte FC, 2-byte duration, 24 bytes addresses, 2-byte seq ctrl,
-    // the user payload typically starts at offset 32:
-    int ackPayloadOffset = 32;
-    if (frameLen < ackPayloadOffset + 1) {
+    // 7) Duration ID
+    unsigned short durationID = (frame[4] << 8) | frame[5];
+    printf("[DEBUG isValidAckFrame] Duration ID=0x%04X\n", durationID);
+    if (durationID != 1) {
+        printf("[DEBUG isValidAckFrame] FAIL: durationID != 1\n");
         return false;
     }
 
-    // The payload region is up to frameLen - 6 (FCS+EndOfFrame) - ackPayloadOffset
-    int possiblePayloadLen = (frameLen - 6) - ackPayloadOffset;
-    if (possiblePayloadLen < 1) {
-        // Not enough room for any textual payload
+    // 8) Addresses
+    int addrOffset = 6;
+    static const unsigned char CLIENT_MAC[6] = {0x12, 0x45, 0xCC, 0xDD, 0xEE, 0x88};
+    static const unsigned char AP_MAC[6]     = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xDD};
+    static const unsigned char ZERO_MAC[6]   = {0,0,0,0,0,0};
+
+    printf("[DEBUG isValidAckFrame] Checking Address1 vs CLIENT_MAC...\n");
+    if (memcmp(frame + addrOffset, CLIENT_MAC, 6) != 0) {
+        printf("[DEBUG isValidAckFrame] FAIL: Address1 mismatch!\n");
+        return false;
+    }
+    addrOffset += 6;
+
+    printf("[DEBUG isValidAckFrame] Checking Address2 vs AP_MAC...\n");
+    if (memcmp(frame + addrOffset, AP_MAC, 6) != 0) {
+        printf("[DEBUG isValidAckFrame] FAIL: Address2 mismatch!\n");
+        return false;
+    }
+    addrOffset += 6;
+
+    printf("[DEBUG isValidAckFrame] Checking Address3 vs AP_MAC...\n");
+    if (memcmp(frame + addrOffset, AP_MAC, 6) != 0) {
+        printf("[DEBUG isValidAckFrame] FAIL: Address3 mismatch!\n");
+        return false;
+    }
+    addrOffset += 6;
+
+    printf("[DEBUG isValidAckFrame] Checking Address4 vs ZERO_MAC...\n");
+    if (memcmp(frame + addrOffset, ZERO_MAC, 6) != 0) {
+        printf("[DEBUG isValidAckFrame] FAIL: Address4 mismatch!\n");
+        return false;
+    }
+    addrOffset += 6;
+
+    // 9) Sequence Control
+    unsigned short seqControl = (frame[addrOffset] << 8) | frame[addrOffset + 1];
+    printf("[DEBUG isValidAckFrame] seqControl=0x%04X\n", seqControl);
+    if (seqControl != 0x0000) {
+        printf("[DEBUG isValidAckFrame] FAIL: seqControl != 0x0000\n");
+        return false;
+    }
+    addrOffset += 2;
+
+    // 10) Check payload for "ACK"
+    int payloadStart = addrOffset;
+    int payloadLen = frameLen - 6 - payloadStart; // minus 6 for FCS+EOF
+    printf("[DEBUG isValidAckFrame] payloadLen=%d\n", payloadLen);
+
+    if (payloadLen < 0) {
+        printf("[DEBUG isValidAckFrame] FAIL: negative payloadLen\n");
         return false;
     }
 
-    // We'll copy a chunk of the payload into a buffer for inspection
-    char ackPayload[101];
+    int checkLen = (payloadLen > 256) ? 256 : payloadLen;
+    char ackPayload[257];
     memset(ackPayload, 0, sizeof(ackPayload));
-    if (possiblePayloadLen > 100) {
-        possiblePayloadLen = 100;
-    }
-    memcpy(ackPayload, frame + ackPayloadOffset, possiblePayloadLen);
 
-    // Check if "ACK for Seq=" is present
-    // (You can parse the actual seq number if needed)
+    if (checkLen > 0) {
+        memcpy(ackPayload, frame + payloadStart, checkLen);
+    }
+    printf("[DEBUG isValidAckFrame] First 256 bytes of payload = \"%s\"\n", ackPayload);
+
     if (strstr(ackPayload, "ACK") == NULL) {
+        printf("[DEBUG isValidAckFrame] FAIL: 'ACK' substring not found.\n");
         return false;
     }
 
-    // If all checks pass, it's a valid ACK
+    printf("[DEBUG isValidAckFrame] PASS: This frame is a valid ACK.\n");
     return true;
 }
 
@@ -282,6 +381,7 @@ int main(){
     struct sockaddr_in fromAddr;
     socklen_t addrLen = sizeof(fromAddr);
     n = recvfrom(sockfd, resp, sizeof(resp), 0, (struct sockaddr *)&fromAddr, &addrLen);
+    //debugHexDump((const unsigned char*)resp, n, "Received Frame");
     if (n < 0) {
         perror("recvfrom failed");
         close(sockfd);
@@ -398,6 +498,7 @@ int main(){
     //receive probe response
     char probeResp[3000];
     n = recvfrom(sockfd, probeResp, sizeof(probeResp), 0, (struct sockaddr *)&servaddr, &addrLen);
+    //debugHexDump((const unsigned char*)resp, n, "Received Frame");
     if(n < 0){
         perror("recvfrom failed");
         close(sockfd);
@@ -513,6 +614,7 @@ int main(){
     //receive CTS response
     char ctsResp[3000];
     n = recvfrom(sockfd, ctsResp, sizeof(ctsResp), 0, (struct sockaddr *)&servaddr, &addrLen);
+    //debugHexDump((const unsigned char*)resp, n, "Received Frame");
     if(n < 0){
         perror("recvfrom failed");
         close(sockfd);
@@ -627,6 +729,7 @@ int main(){
     //receive ACK
     char ackResp[3000];
     n = recvfrom(sockfd, ackResp, sizeof(ackResp), 0, (struct sockaddr *)&servaddr, &addrLen);
+    //debugHexDump((const unsigned char*)resp, n, "Received Frame");
     if(n < 0){
         perror("recvfrom failed");
         close(sockfd);
@@ -732,6 +835,7 @@ int main(){
     //receive the error message from the AP
     char errResp[3000];
     n = recvfrom(sockfd, errResp, sizeof(errResp), 0, (struct sockaddr *)&servaddr, &addrLen);
+    //debugHexDump((const unsigned char*)resp, n, "Received Frame");
     if(n < 0){
         perror("recvfrom failed");
         close(sockfd);
@@ -816,139 +920,211 @@ int main(){
         printf("Client: Multi-Frame RTS sent with Duration ID 12, FCS computed as %u (frame size: %d bytes).\n", multiRTSChecksum, multiRTSSize);
     }
 
-    //step 2: send 5 fragmented (correct) data frames with decreasing Duration IDs.
+    // STEP 2: Send 5 fragmented (correct) data frames with decreasing Duration IDs.
     for (int i = 0; i < 5; i++) {
         char fragFrame[3000];
         int fOffset = 0;
 
-        //start of Frame ID
-        fragFrame[fOffset++] = 0xFF; 
+        // 1) Start-of-Frame
+        fragFrame[fOffset++] = 0xFF;
         fragFrame[fOffset++] = 0xFF;
 
-        uint8_t fcByte1 = 0x20; //0x20 = 0010 0000 means Protocol=0, Type=2, Subtype=0.
-        uint8_t fcByte2 = 0x01; //default: To DS=1
-        
-        //if not the last fragment, set More Fragments bit (bit 1 => 0x02)
-        //so second byte becomes 0x03 (0x01 | 0x02).
-        if (i < 4) {
-            fcByte2 |= 0x02;
-        }
+        // 2) Frame Control bytes for a Data frame client->AP
+        uint8_t fcByte1 = 0x20; // Type=2 (Data), Subtype=0, ProtocolVersion=0
+        uint8_t fcByte2 = 0x01; // ToDS=1, FromDS=0 by default
 
+        // If not the last fragment, set More Frag bit (bit 1 => 0x02)
+        if (i < 4) {
+            fcByte2 |= 0x02; // so second byte = 0x03
+        }
         fragFrame[fOffset++] = fcByte1;
         fragFrame[fOffset++] = fcByte2;
 
-        //duration ID: start at 12 and decrement for each fragment
+        // 3) Duration ID (starting at 12, decrement each fragment)
         uint16_t duration = 12 - i;
         fragFrame[fOffset++] = (duration >> 8) & 0xFF;
-        fragFrame[fOffset++] = duration & 0xFF;
+        fragFrame[fOffset++] = (duration & 0xFF);
 
-        //addresses same as previous data frame:
-        //apMAC_Data, clientMAC_Data, apMAC_Data, bridge_Data
+        // 4) Addresses (AP MAC, Client MAC, etc.)
+        //    (Use your existing addresses as you’ve already done)
+        unsigned char apMAC_Data[6]      = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xDD};
+        unsigned char clientMAC_Data[6]  = {0x12, 0x45, 0xCC, 0xDD, 0xEE, 0x88};
+        unsigned char bridge_Data[6]     = {0,0,0,0,0,0};
+
+        // Address1 = AP
         memcpy(fragFrame + fOffset, apMAC_Data, 6);
         fOffset += 6;
+        // Address2 = Client
         memcpy(fragFrame + fOffset, clientMAC_Data, 6);
         fOffset += 6;
+        // Address3 = AP
         memcpy(fragFrame + fOffset, apMAC_Data, 6);
         fOffset += 6;
+        // Address4 = Bridge (all zeros)
         memcpy(fragFrame + fOffset, bridge_Data, 6);
         fOffset += 6;
 
-        //sequence Control: high 12 bits = 0x010, low 4 bits = i (the fragment number)
+        // 5) Sequence Control
+        //    high 12 bits = 0x010, low 4 bits = i => (0x010 << 4) | i
         uint16_t seqControl = (0x010 << 4) | (i & 0x0F);
         fragFrame[fOffset++] = (seqControl >> 8) & 0xFF;
-        fragFrame[fOffset++] = seqControl & 0xFF;
+        fragFrame[fOffset++] = (seqControl & 0xFF);
 
-        //payload
+        // 6) Payload
+        char fullPayload[MAX_PAYLOAD];
         memset(fullPayload, 0xFF, MAX_PAYLOAD);
-        char shortFragStr[100];
+        char shortFragStr[64];
         snprintf(shortFragStr, sizeof(shortFragStr), "DATA_MULTI_CORRECT_%d", i + 1);
-        int shortFragLen = strlen(shortFragStr);
-        memcpy(fullPayload, shortFragStr, shortFragLen);
+        memcpy(fullPayload, shortFragStr, strlen(shortFragStr)); 
         memcpy(fragFrame + fOffset, fullPayload, MAX_PAYLOAD);
         fOffset += MAX_PAYLOAD;
 
-        //reserve 4 bytes for FCS
+        // 7) Reserve space for FCS
         int fragFcsPos = fOffset;
         fragFrame[fOffset++] = 0x00;
         fragFrame[fOffset++] = 0x00;
         fragFrame[fOffset++] = 0x00;
         fragFrame[fOffset++] = 0x00;
 
-        //end of frame ID
+        // 8) End-of-Frame
         fragFrame[fOffset++] = 0xFF;
         fragFrame[fOffset++] = 0xFF;
 
         int fragFrameSize = fOffset;
+
+        // 9) Compute FCS
         uint32_t fragChecksum = getCheckSumValue(fragFrame, fragFrameSize, 0, 6);
         fragFrame[fragFcsPos + 0] = (fragChecksum >> 24) & 0xFF;
         fragFrame[fragFcsPos + 1] = (fragChecksum >> 16) & 0xFF;
         fragFrame[fragFcsPos + 2] = (fragChecksum >> 8) & 0xFF;
-        fragFrame[fragFcsPos + 3] = fragChecksum & 0xFF;
+        fragFrame[fragFcsPos + 3] = (fragChecksum & 0xFF);
 
-        printf("Client: Fragment %d prepared with Duration ID %d, FCS = %u.\n", 
+        printf("Client: Fragment %d prepared with Duration ID %d, FCS = %u.\n",
             i + 1, duration, fragChecksum);
 
-        //retransmission with timer and retry counter
-        int retry = 0;
+        // For verifying the correct ACK, define what we expect:
+        // - 'expectedSeqControl' is the exact seqControl of this fragment
+        // - 'expectedFragNum' is fragment i+1
+        uint16_t expectedSeqControl = seqControl; 
+        uint8_t  expectedFragNum    = (uint8_t)(i + 1);
+
+        // 10) Attempt up to 3 retransmissions
+        int retry       = 0;
         int ackReceived = 0;
+
         while (retry < 3 && !ackReceived) {
-            //send the fragment
-            n = sendto(sockfd, fragFrame, fragFrameSize, 0,
-                    (struct sockaddr *)&servaddr, sizeof(servaddr));
-            if (n < 0) {
+            // Send the fragment
+            int sentBytes = sendto(sockfd, fragFrame, fragFrameSize, 0,
+                                (struct sockaddr *)&servaddr, sizeof(servaddr));
+            if (sentBytes < 0) {
                 perror("sendto frag failed");
                 exit(EXIT_FAILURE);
             }
-
             printf("Client: Sending Fragment %d (attempt %d).\n", i + 1, retry + 1);
 
+            // Receive potential ACK from AP
+            char resp[3000];
             memset(resp, 0, sizeof(resp));
-            n = recvfrom(sockfd, resp, sizeof(resp), 0, (struct sockaddr *)&servaddr, &addrLen);
-            if (n > 0) {
-                if (isValidAckFrame(resp, n)) {
-                    printf("Client: ACK received for Fragment %d.\n", i + 1);
-                    ackReceived = 1;
-                } else {
-                    printf("Client: Not a valid ACK (or FCS mismatch) for Fragment %d on attempt %d.\n",
-                        i + 1, retry + 1);
+            socklen_t addrLen = sizeof(servaddr);
+            int n = recvfrom(sockfd, resp, sizeof(resp), 0,
+                            (struct sockaddr *)&servaddr, &addrLen);
+            if (n <= 0) {
+                printf("Client: No ACK received for Fragment %d on attempt %d.\n",
+                    i + 1, retry + 1);
+            }
+            else {
+                // 1) (Optional) Check if it’s a well-formed ACK frame
+                if (!isValidAckFrame((const unsigned char*)resp, n)) {
+                    // If isValidAckFrame fails, we can STILL parse the payload manually below,
+                    // in case the AP is sending a smaller/different ACK that fails some checks.
+                    printf("Client: Not a valid ACK (frame structure mismatch?). Attempt %d.\n",
+                        retry + 1);
                 }
-            } else {
-                printf("Client: No ACK received for Fragment %d on attempt %d.\n", i + 1, retry + 1);
+                // 2) Now parse the ACK’s payload to see if it acknowledges the correct fragment.
+                //    We know the payload typically starts after 32 bytes of header, 
+                //    and we skip last 6 bytes for FCS+EOF => n-6 total bytes in “frame”.
+                int ackPayloadStartOffset = 32; // typical 802.11 data offset 
+                int ackPayloadLength      = n - 6 - ackPayloadStartOffset;
+                if (ackPayloadLength > 0) {
+                    // Copy out the ACK’s text
+                    char ackPayload[3000];
+                    memset(ackPayload, 0, sizeof(ackPayload));
+
+                    // Don’t overflow ackPayload
+                    if (ackPayloadLength > (int)sizeof(ackPayload) - 1) {
+                        ackPayloadLength = (int)sizeof(ackPayload) - 1;
+                    }
+                    memcpy(ackPayload, resp + ackPayloadStartOffset, ackPayloadLength);
+                    ackPayload[ackPayloadLength] = '\0';
+
+                    // Attempt to parse "ACK for Seq=0xXXXX (Frag Y)"
+                    unsigned int ackSeq = 0;
+                    unsigned int ackFrag= 0;
+                    if (sscanf(ackPayload, "ACK for Seq=0x%X (Frag %u)", &ackSeq, &ackFrag) == 2) {
+                        // Compare with what we expected
+                        if ((uint16_t)ackSeq == expectedSeqControl && (uint8_t)ackFrag == expectedFragNum) {
+                            printf("Client: ACK received for Fragment %d (seq=0x%04X)!\n",
+                                expectedFragNum, expectedSeqControl);
+                            ackReceived = 1; 
+                        }
+                        else {
+                            printf("Client: ACK was for a different fragment: Seq=0x%X, Frag=%u.\n",
+                                ackSeq, ackFrag);
+                        }
+                    }
+                    else {
+                        printf("Client: Could not parse the ACK text: \"%s\".\n", ackPayload);
+                    }
+                }
+                else {
+                    printf("Client: The received frame had no payload to parse.\n");
+                }
             }
             retry++;
         }
 
+        // If after 3 attempts we still have not received the correct ACK:
         if (!ackReceived) {
-            printf("Client: Final status - No ACK received from AP for Fragment %d after 3 attempts.\n", i + 1);
+            printf("Client: Final status - No correct ACK for Fragment %d after 3 attempts.\n",
+                i + 1);
         }
     }
 
-    //step 3: send another 5 fragmented frames, with one correct and four error.
+    // STEP 3: Send another 5 fragmented frames, 
+    // with exactly ONE correct fragment and FOUR with intentionally corrupted FCS.
     for (int i = 0; i < 5; i++) {
         char fragFrame[3000];
         int fOffset = 0;
 
-        //start of Frame ID
+        // 1) Start-of-Frame
         fragFrame[fOffset++] = 0xFF;
         fragFrame[fOffset++] = 0xFF;
 
-        uint8_t fcByte1 = 0x20; //Type=2, Subtype=0
-        uint8_t fcByte2 = 0x01; //To DS=1
+        // 2) Frame Control for a Data frame from client->AP
+        //    ProtocolVersion=0, Type=2 (Data), Subtype=0 => 0x20
+        //    ToDS=1, FromDS=0 => second byte 0x01 by default
+        uint8_t fcByte1 = 0x20; 
+        uint8_t fcByte2 = 0x01; 
 
-        //if not the last fragment, set More Fragments
+        // If not the last fragment, set "More Fragments" bit => 0x02
         if (i < 4) {
-            fcByte2 |= 0x02;  //so second byte = 0x03
+            fcByte2 |= 0x02;  // second byte becomes 0x03
         }
 
         fragFrame[fOffset++] = fcByte1;
         fragFrame[fOffset++] = fcByte2;
 
-        //duration ID: start at 8, decrement per fragment
+        // 3) Duration ID: start at 8, decrement for each fragment
         uint16_t duration = 8 - i;
         fragFrame[fOffset++] = (duration >> 8) & 0xFF;
-        fragFrame[fOffset++] = duration & 0xFF;
+        fragFrame[fOffset++] = (duration & 0xFF);
 
-        //addresses
+        // 4) Addresses
+        //    (Presumes you already have these arrays defined somewhere above)
+        //    e.g.:
+        //    unsigned char apMAC_Data[6]    = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xDD};
+        //    unsigned char clientMAC_Data[6]= {0x12, 0x45, 0xCC, 0xDD, 0xEE, 0x88};
+        //    unsigned char bridge_Data[6]   = {0,0,0,0,0,0};
         memcpy(fragFrame + fOffset, apMAC_Data, 6);
         fOffset += 6;
         memcpy(fragFrame + fOffset, clientMAC_Data, 6);
@@ -958,85 +1134,143 @@ int main(){
         memcpy(fragFrame + fOffset, bridge_Data, 6);
         fOffset += 6;
 
-        //sequence control (0x010 with i as the fragment #)
+        // 5) Sequence Control: high 12 bits=0x010, low 4 bits=i
         uint16_t seqControl = (0x010 << 4) | (i & 0x0F);
         fragFrame[fOffset++] = (seqControl >> 8) & 0xFF;
-        fragFrame[fOffset++] = seqControl & 0xFF;
+        fragFrame[fOffset++] = (seqControl & 0xFF);
 
-        //payload
+        // 6) Payload
+        char fullPayload[MAX_PAYLOAD];
         memset(fullPayload, 0xFF, MAX_PAYLOAD);
-        char payloadFrag[50];
+
+        // If index == 2 => correct fragment; otherwise => error
+        char payloadFrag[64];
         if (i == 2) {
-            sprintf(payloadFrag, "DATA_MULTI_CORRECT_%d", i + 1);
+            // The only "correct" one
+            snprintf(payloadFrag, sizeof(payloadFrag),
+                    "DATA_MULTI_CORRECT_%d", i + 1);
         } else {
-            sprintf(payloadFrag, "DATA_MULTI_ERROR_%d", i + 1);
+            snprintf(payloadFrag, sizeof(payloadFrag),
+                    "DATA_MULTI_ERROR_%d", i + 1);
         }
 
-        int payloadFragLen = strlen(payloadFrag);
-        memcpy(fullPayload, payloadFrag, payloadFragLen);
+        memcpy(fullPayload, payloadFrag, strlen(payloadFrag));
         memcpy(fragFrame + fOffset, fullPayload, MAX_PAYLOAD);
         fOffset += MAX_PAYLOAD;
 
-        //reserve 4 bytes for FCS
+        // 7) Reserve 4 bytes for FCS
         int fragFcsPos = fOffset;
         fragFrame[fOffset++] = 0x00;
         fragFrame[fOffset++] = 0x00;
         fragFrame[fOffset++] = 0x00;
         fragFrame[fOffset++] = 0x00;
 
-        //end of frame ID
+        // 8) End-of-Frame
         fragFrame[fOffset++] = 0xFF;
         fragFrame[fOffset++] = 0xFF;
 
         int fragFrameSize = fOffset;
+
+        // 9) Compute the correct FCS
         uint32_t fragChecksum = getCheckSumValue(fragFrame, fragFrameSize, 0, 6);
 
-        //corrupt FCS if not the correct fragment
+        // 10) Deliberately corrupt if i != 2
         if (i != 2) {
-            fragChecksum += 1;
+            // i.e., 4 out of 5 fragments get a bad FCS
+            fragChecksum += 1;  
         }
 
+        // Insert the final (possibly corrupted) FCS into the frame
         fragFrame[fragFcsPos + 0] = (fragChecksum >> 24) & 0xFF;
         fragFrame[fragFcsPos + 1] = (fragChecksum >> 16) & 0xFF;
-        fragFrame[fragFcsPos + 2] = (fragChecksum >> 8) & 0xFF;
-        fragFrame[fragFcsPos + 3] = fragChecksum & 0xFF;
+        fragFrame[fragFcsPos + 2] = (fragChecksum >> 8)  & 0xFF;
+        fragFrame[fragFcsPos + 3] = (fragChecksum & 0xFF);
 
         printf("Client: Multi Data Fragment %d prepared with Duration ID %d, FCS = %u.\n",
             i + 1, duration, fragChecksum);
 
+        // For verifying correct ACK if we get one
+        uint16_t expectedSeqControl = seqControl;
+        uint8_t  expectedFragNum    = (uint8_t)(i + 1);
+
+        // 11) Attempt up to 3 times to get an ACK
         int retry = 0;
         int ackReceived = 0;
-
         while (retry < 3 && !ackReceived) {
-            n = sendto(sockfd, fragFrame, fragFrameSize, 0,
-                    (struct sockaddr *)&servaddr, sizeof(servaddr));
-            if (n < 0) {
-                perror("sendto frag failed");
+            // Send the fragment
+            int sent = sendto(sockfd, fragFrame, fragFrameSize, 0,
+                            (struct sockaddr *)&servaddr, sizeof(servaddr));
+            if (sent < 0) {
+                perror("sendto (fragment) failed");
                 exit(EXIT_FAILURE);
             }
 
-            printf("Client: Sending Multi Data Fragment %d (attempt %d).\n", i + 1, retry + 1);
+            printf("Client: Sending Multi Data Fragment %d (attempt %d).\n",
+                i + 1, retry + 1);
 
-            //try to receive the ACK
+            // Try to receive an ACK
+            char resp[3000];
             memset(resp, 0, sizeof(resp));
-            n = recvfrom(sockfd, resp, sizeof(resp), 0, (struct sockaddr *)&servaddr, &addrLen);
-            if (n > 0) {
-                if (isValidAckFrame(resp, n)) {
-                    printf("Client: ACK received for Multi Data Fragment %d.\n", i + 1);
-                    ackReceived = 1;
-                } else {
-                    printf("Client: Multi Data Fragment %d - not a valid ACK (FCS mismatch or other). Attempt %d.\n",
-                        i + 1, retry + 1);
-                }
-            } else {
-                printf("Client: Final status - No ACK received for Multi Data Fragment %d on attempt %d.\n",
+            socklen_t addrLen = sizeof(servaddr);
+
+            int n = recvfrom(sockfd, resp, sizeof(resp), 0,
+                            (struct sockaddr *)&servaddr, &addrLen);
+            if (n <= 0) {
+                printf("Client: No ACK received for Multi Data Fragment %d on attempt %d.\n",
                     i + 1, retry + 1);
             }
+            else {
+                // Optionally check if it looks like a valid ACK frame
+                if (!isValidAckFrame((const unsigned char*)resp, n)) {
+                    printf("Client: Not a valid ACK (structure mismatch?). Attempt %d.\n",
+                        retry + 1);
+                }
+
+                // We can parse the payload to see exactly which fragment it claims to ACK
+                int ackPayloadStartOffset = 32; // typical 802.11 offset
+                int ackPayloadLength      = n - 6 - ackPayloadStartOffset; // minus FCS/EOF
+                if (ackPayloadLength > 0) {
+                    // Copy out the ACK text
+                    char ackPayload[1024];
+                    memset(ackPayload, 0, sizeof(ackPayload));
+
+                    if (ackPayloadLength > (int)sizeof(ackPayload) - 1) {
+                        ackPayloadLength = (int)sizeof(ackPayload) - 1;
+                    }
+                    memcpy(ackPayload, resp + ackPayloadStartOffset, ackPayloadLength);
+                    ackPayload[ackPayloadLength] = '\0';
+
+                    // Parse string: "ACK for Seq=0xXXXX (Frag Y)"
+                    unsigned int ackSeq  = 0;
+                    unsigned int ackFrag = 0;
+                    if (sscanf(ackPayload, "ACK for Seq=0x%X (Frag %u)",
+                            &ackSeq, &ackFrag) == 2) {
+                        if ((uint16_t)ackSeq == expectedSeqControl &&
+                            (uint8_t)ackFrag == expectedFragNum) {
+                            printf("Client: ACK received for Multi Data Fragment %d!\n", i + 1);
+                            ackReceived = 1;
+                        }
+                        else {
+                            printf("Client: ACK is for Seq=0x%X, Frag=%u -- not the expected.\n",
+                                ackSeq, ackFrag);
+                        }
+                    }
+                    else {
+                        printf("Client: Could not parse the ACK text: \"%s\"\n", ackPayload);
+                    }
+                }
+                else {
+                    printf("Client: The AP's response had no payload to parse.\n");
+                }
+            }
+
             retry++;
         }
 
+        // If we never got the correct ACK after 3 tries
         if (!ackReceived) {
-            printf("No ACK received from AP for Multi Data Fragment %d.\n", i + 1);
+            printf("Client: No correct ACK from AP for Multi Data Fragment %d after 3 attempts.\n",
+                i + 1);
         }
     }
 
