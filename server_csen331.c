@@ -9,6 +9,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#define MAX_PAYLOAD 2312
+
 void error(char *msg){
     perror(msg);
     exit(0);
@@ -107,6 +109,11 @@ int main(int argc, char *argv[]){
         }
         
         printf("Received %d bytes\n", n);
+
+        if (n < 40) { 
+            printf("Packet too short to be a valid 802.11 frame. Ignoring.\n");
+            continue;
+        }
         
         //start of frame ID
         if ((unsigned char)buf[0] != 0xFF || (unsigned char)buf[1] != 0xFF) {
@@ -163,7 +170,7 @@ int main(int argc, char *argv[]){
                     associated = 1;  //mark client as associated
 
                     //association response frame
-                    char respFrame[100];
+                    char respFrame[3000];
                     int offset = 0;
 
                     //start of frame ID
@@ -241,7 +248,7 @@ int main(int argc, char *argv[]){
                 printf("AP: Received Probe Request from client. Processing...\n");
 
                 //build Probe Response frame
-                char probeRespFrame[100];
+                char probeRespFrame[3000];
                 int pOffset = 0;
 
                 //start of frame ID
@@ -281,10 +288,15 @@ int main(int argc, char *argv[]){
                 probeRespFrame[pOffset++] = 0x00;
 
                 //payload
+                unsigned char fullPayload[MAX_PAYLOAD];
+                memset(fullPayload, 0xFF, MAX_PAYLOAD);
+
                 char *probeRespPayload = "Probe Response";
                 int probeRespPayloadLen = strlen(probeRespPayload);
-                memcpy(probeRespFrame + pOffset, probeRespPayload, probeRespPayloadLen);
-                pOffset += probeRespPayloadLen;
+                memcpy(fullPayload, probeRespPayload, probeRespPayloadLen);
+
+                memcpy(probeRespFrame + pOffset, fullPayload, MAX_PAYLOAD);
+                pOffset += MAX_PAYLOAD;
 
                 //reserve 4 bytes for FCS
                 int probeFcsPos = pOffset;
@@ -319,7 +331,7 @@ int main(int argc, char *argv[]){
                 printf("AP: Received RTS frame from client. Preparing CTS response...\n");
                 
                 // Build CTS Response frame
-                char ctsFrame[100];
+                char ctsFrame[3000];
                 int ctsOffset = 0;
                 
                 //start of frame ID
@@ -360,10 +372,15 @@ int main(int argc, char *argv[]){
                 ctsFrame[ctsOffset++] = 0x00;
                 
                 //payload
+                unsigned char fullPayload[MAX_PAYLOAD];
+                memset(fullPayload, 0xFF, MAX_PAYLOAD);
+
                 char *ctsPayload = "CTS";
                 int ctsPayloadLen = strlen(ctsPayload);
-                memcpy(ctsFrame + ctsOffset, ctsPayload, ctsPayloadLen);
-                ctsOffset += ctsPayloadLen;
+                memcpy(fullPayload, ctsPayload, ctsPayloadLen);
+
+                memcpy(ctsFrame + ctsOffset, fullPayload, MAX_PAYLOAD);
+                ctsOffset += MAX_PAYLOAD;
                 
                 //reserve 4 bytes for FCS
                 int ctsFcsPos = ctsOffset;
@@ -396,99 +413,102 @@ int main(int argc, char *argv[]){
                 //parse the Frame Control field (2 bytes at positions 2 and 3)
                 uint8_t fcByte1 = (unsigned char)buf[2];
                 uint8_t fcByte2 = (unsigned char)buf[3];
-
-                //fcByte1 should be 0x20 (Data frame) and fcByte2 bit0 should be ToDS=1
+            
+                //fcByte1 = 0x20 (Data frame), fcByte2 bit0 => ToDS=1
                 if ((fcByte2 & 0x01) != 0x01) {
                     printf("AP: Received Data Frame not destined for AP.\n");
                     continue;
                 }
-
+            
                 printf("AP: Received Data Frame from client. Processing payload...\n");
-
-                //determine if this is a multi fragment frame
-                int headerSize = 32; //2 (start) + 2(frame control) + 24(4 addresses) + 2(seq control)
-                
                 uint16_t seqControl = (((unsigned char)buf[30]) << 8) | ((unsigned char)buf[31]);
-                uint8_t fragNum = seqControl & 0x0F;  //lower 4 bits hold the fragment number
-
-                //check the More Fragments flag.
-                //second byte of frame control (fcByte2), bit1 (mask 0x02) is More Fragments flag.
+                uint8_t fragNum = seqControl & 0x0F;  //lower 4 bits for fragment
                 bool moreFragments = ((fcByte2 & 0x02) != 0);
-                printf("AP: Received Data Frame. Frame Control: 0x%02X 0x%02X; Sequence Control: 0x%04X (Fragment %u); More Frags: %s\n",
-                       fcByte1, fcByte2, seqControl, fragNum+1, moreFragments ? "true" : "false");
-
-                //ack frame
-                char ackFrame[100];
+            
+                printf("AP: Received Data Frame. Frame Control: 0x%02X 0x%02X; "
+                       "Sequence Control: 0x%04X (Fragment %u); More Frags: %s\n",
+                       fcByte1, fcByte2, seqControl, (fragNum + 1), moreFragments ? "true" : "false");
+            
+                char ackFrame[3000];
                 int aOffset = 0;
-                
-                //start frame identifier
+            
+                //start of frame ID
                 ackFrame[aOffset++] = 0xFF;
                 ackFrame[aOffset++] = 0xFF;
-                
-                //ack: Type = 01, Subtype = 1101 -> 0x1D (binary 00011101),
-                //and for AP->client, ToDS=0, FromDS=1 -> 0x02.
-                ackFrame[aOffset++] = 0x1D;
+            
+                //Frame Control for ACK: Type=1, Subtype=1101 -> 0x1D,
+                //AP->Client -> second byte=0x02 (FromDS=1, ToDS=0)
+                ackFrame[aOffset++] = 0x1D; // (binary 00011101)
                 ackFrame[aOffset++] = 0x02;
-                
-                //duration ID = 1 (0x0001)
+            
+                //duration ID = 1
                 ackFrame[aOffset++] = 0x00;
                 ackFrame[aOffset++] = 0x01;
-                
-                //address 1 receiver (client): 1245CCDDEE88
+                    
+                //addresses
                 unsigned char clientMAC_ACK[6] = {0x12, 0x45, 0xCC, 0xDD, 0xEE, 0x88};
                 memcpy(ackFrame + aOffset, clientMAC_ACK, 6);
                 aOffset += 6;
-                
-                //address 2 source (AP): AABBCCDDEEDD
+            
                 unsigned char apMAC_ACK[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xDD};
                 memcpy(ackFrame + aOffset, apMAC_ACK, 6);
                 aOffset += 6;
-                
-                //address 3 AP address (AABBCCDDEEDD)
+            
+                //AP address again
                 memcpy(ackFrame + aOffset, apMAC_ACK, 6);
                 aOffset += 6;
-                
-                //address 4 Bridge (all zeros)
-                unsigned char bridge_ACK[6] = {0,0,0,0,0,0};
+            
+                // Bridge address (all zeros)
+                unsigned char bridge_ACK[6] = {0, 0, 0, 0, 0, 0};
                 memcpy(ackFrame + aOffset, bridge_ACK, 6);
                 aOffset += 6;
-                
-                //sequence control: 0x0000
+            
+                //sequence control (0x0000)
                 ackFrame[aOffset++] = 0x00;
                 ackFrame[aOffset++] = 0x00;
-                
-                //payload
-                char *ackPayload = "ACK";
-                int ackPayloadLen = strlen(ackPayload);
-                memcpy(ackFrame + aOffset, ackPayload, ackPayloadLen);
-                aOffset += ackPayloadLen;
-                
+            
+                unsigned char fullPayload[MAX_PAYLOAD];
+                memset(fullPayload, 0xFF, MAX_PAYLOAD);
+            
+                char ackPayload[100];
+                snprintf(ackPayload, sizeof(ackPayload),
+                         "ACK for Seq=0x%04X (Frag %u)", seqControl, (fragNum + 1));
+            
+                size_t ackPayloadLen = strlen(ackPayload);
+                memcpy(fullPayload, ackPayload, ackPayloadLen);
+                memcpy(ackFrame + aOffset, fullPayload, MAX_PAYLOAD);
+                aOffset += MAX_PAYLOAD;
+            
                 //reserve 4 bytes for FCS
                 int ackFcsPos = aOffset;
                 ackFrame[aOffset++] = 0x00;
                 ackFrame[aOffset++] = 0x00;
                 ackFrame[aOffset++] = 0x00;
                 ackFrame[aOffset++] = 0x00;
-                
+            
                 //end of frame ID
                 ackFrame[aOffset++] = 0xFF;
                 ackFrame[aOffset++] = 0xFF;
-                
+            
                 int ackFrameSize = aOffset;
                 uint32_t ackChecksum = getCheckSumValue(ackFrame, ackFrameSize, 0, 6);
+            
+                //insert FCS
                 ackFrame[ackFcsPos + 0] = (ackChecksum >> 24) & 0xFF;
                 ackFrame[ackFcsPos + 1] = (ackChecksum >> 16) & 0xFF;
                 ackFrame[ackFcsPos + 2] = (ackChecksum >> 8) & 0xFF;
                 ackFrame[ackFcsPos + 3] = ackChecksum & 0xFF;
-                
-                //send ACK response
-                int ackSendBytes = sendto(sock, ackFrame, ackFrameSize, 0, (struct sockaddr *)&from, fromlen);
-                if(ackSendBytes < 0) {
+            
+                //send ACK
+                int ackSendBytes = sendto(sock, ackFrame, ackFrameSize, 0,
+                                          (struct sockaddr *)&from, fromlen);
+                if (ackSendBytes < 0) {
                     error("sendto");
                 }
-                
-                printf("AP: Built ACK for Data Frame (Fragment %u) with FCS = %u. Sent ACK (size %d bytes).\n", 
-                    fragNum + 1, ackChecksum, ackFrameSize);
+            
+                printf("AP: Built ACK for Data Frame (Frag %u, seq=0x%04X) with FCS=%u. Sent ACK (size %d bytes).\n",
+                       fragNum + 1, seqControl, ackChecksum, ackFrameSize);
+            
                 continue;
             }
         }
