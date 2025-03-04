@@ -10,7 +10,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
-
+#include <fcntl.h>
 
 #define SERVER_PORT 4547
 #define SERVER_IP "127.0.0.1"
@@ -134,12 +134,12 @@ bool isValidAckFrame(const unsigned char* frame, int frameLen)
     unsigned char fcByte2 = frame[3];
     //printf("[DEBUG isValidAckFrame] fcByte1=0x%02X fcByte2=0x%02X\n", fcByte1, fcByte2);
 
-    unsigned int protocolVersion = (fcByte1 & 0x03);            // bits [1..0]
-    unsigned int frameType       = (fcByte1 >> 2) & 0x03;        // bits [3..2]
-    unsigned int frameSubtype    = (fcByte1 >> 4) & 0x0F;        // bits [7..4]
+    unsigned int protocolVersion = (fcByte1 & 0x03); // bits [1..0]
+    unsigned int frameType = (fcByte1 >> 2) & 0x03; // bits [3..2]
+    unsigned int frameSubtype = (fcByte1 >> 4) & 0x0F; // bits [7..4]
 
-    bool toDS      = ((fcByte2 & 0x01) != 0); // bit [0]
-    bool fromDS    = ((fcByte2 & 0x02) != 0); // bit [1]
+    bool toDS = ((fcByte2 & 0x01) != 0); // bit [0]
+    bool fromDS = ((fcByte2 & 0x02) != 0); // bit [1]
 
     //printf("[DEBUG isValidAckFrame] Parsed FC -> protocolVer=%u type=%u subtype=%u toDS=%d fromDS=%d\n", protocolVersion, frameType, frameSubtype, toDS, fromDS);
 
@@ -237,6 +237,48 @@ bool isValidAckFrame(const unsigned char* frame, int frameLen)
     return true;
 }
 
+void drainUDPSocket(int sockfd)
+{
+    //get current flags
+    int oldFlags = fcntl(sockfd, F_GETFL, 0);
+    if (oldFlags < 0) {
+        perror("drainUDPSocket: fcntl(F_GETFL)");
+        return;
+    }
+
+    //put socket in non-blocking mode
+    if (fcntl(sockfd, F_SETFL, oldFlags | O_NONBLOCK) < 0) {
+        perror("drainUDPSocket: fcntl(F_SETFL, O_NONBLOCK)");
+        return;
+    }
+
+    //repeatedly read until EAGAIN/EWOULDBLOCK
+    while (true) {
+        char discardBuf[2048];
+        struct sockaddr_in discardAddr;
+        socklen_t discardLen = sizeof(discardAddr);
+
+        ssize_t n = recvfrom(sockfd, discardBuf, sizeof(discardBuf), 0,
+                             (struct sockaddr *)&discardAddr, &discardLen);
+        if (n < 0) {
+            //if it's a "would block" error, no more data left
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                break;
+            }
+            else {
+                perror("drainUDPSocket: recvfrom");
+                break;
+            }
+        }
+        //if we did successfully read something, we ignore it (discard),
+        //and loop again to see if there's more pending.
+    }
+
+    //restore original blocking mode
+    if (fcntl(sockfd, F_SETFL, oldFlags) < 0) {
+        perror("drainUDPSocket: fcntl(F_SETFL, restore)");
+    }
+}
 
 int main(){
     /*
@@ -371,7 +413,7 @@ int main(){
         printf("Client: Association Request sent (%d bytes).\n", totalFrameSize);
     }
     
-
+    drainUDPSocket(sockfd);
     //recieve asoo responsce
     char resp[3000];
     struct sockaddr_in fromAddr;
@@ -408,6 +450,7 @@ int main(){
         printf("Client: Association Response FCS verified successfully: %u.\n", respComputedFCS);
     }
 
+    drainUDPSocket(sockfd);
     //send probe request
     char probeFrame[3000];
     int pOffset = 0;
@@ -490,6 +533,7 @@ int main(){
         printf("Client: Probe Request sent (%d bytes) to AP.\n", probeFrameSize);
     }
 
+    drainUDPSocket(sockfd);
     //receive probe response
     char probeResp[3000];
     memset(resp, 0, sizeof(resp));
@@ -604,6 +648,7 @@ int main(){
         printf("Client: RTS frame sent (%d bytes) to AP.\n", rtsFrameSize);
     }
     
+    drainUDPSocket(sockfd);
     //receive CTS response
     char ctsResp[3000];
     memset(resp, 0, sizeof(resp));
@@ -718,6 +763,7 @@ int main(){
         printf("Client: Data Frame sent (%d bytes) to AP.\n", dataFrameSize);
     }
 
+    drainUDPSocket(sockfd);
     //receive ACK
     char ackResp[3000];
     memset(resp, 0, sizeof(resp));
@@ -823,6 +869,7 @@ int main(){
         printf("Client: Error Data Frame sent (%d bytes) to AP.\n", errDataFrameSize);
     }
 
+    drainUDPSocket(sockfd);
     //receive the error message from the AP
     char errResp[3000];
     memset(resp, 0, sizeof(resp));
@@ -1010,7 +1057,7 @@ int main(){
             char resp[3000];
             memset(resp, 0, sizeof(resp));
             socklen_t addrLen = sizeof(servaddr);
-            
+            drainUDPSocket(sockfd);
             int n = recvfrom(sockfd, resp, sizeof(resp), 0,
                             (struct sockaddr *)&servaddr, &addrLen);
             if (n <= 0) {
@@ -1168,7 +1215,7 @@ int main(){
             char resp[3000];
             memset(resp, 0, sizeof(resp));
             socklen_t addrLen = sizeof(servaddr);
-
+            drainUDPSocket(sockfd);
             int n = recvfrom(sockfd, resp, sizeof(resp), 0,
                             (struct sockaddr *)&servaddr, &addrLen);
             if (n <= 0) {

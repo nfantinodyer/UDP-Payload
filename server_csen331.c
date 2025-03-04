@@ -90,7 +90,6 @@ void debugHexDump(const unsigned char* data, int length, const char* label)
     printf("\n=== END of HEX DUMP ===\n\n");
 }
 
-
 int main(){
     int sock, length, fromlen, n;
     struct sockaddr_in server;
@@ -152,106 +151,99 @@ int main(){
                 //assume sequence control is at bytes 30 and 31 in a 32-byte header.
                 uint16_t seqControl = (((unsigned char)buf[30]) << 8) | ((unsigned char)buf[31]);
                 uint8_t fragNum = seqControl & 0x0F; //lower 4 bits
-                printf("AP: FCS Error detected in Multi Data Fragment %u. Computed FCS = %u, but Received FCS = %u. No ACK sent.\n",
+                printf("AP: FCS Error fragment or data frame %u. Computed FCS = %u, but Received FCS = %u. No ACK sent.\n",
                        fragNum+1, computedFCS, receivedFCS);
+                //clear the buffer
+                memset(buf, 0, sizeof(buf));
+                seqControl = 0;
+                fragNum = 0;
             } else {
                 printf("AP: FCS Error detected. Computed FCS = %u, but Received FCS = %u. Sending error message.\n", computedFCS, receivedFCS);
+                memset(buf, 0, sizeof(buf));
             }
             char errorMsg[] = "FCS (Frame Check Sequence) Error";
             printf("AP: FCS (Frame Check Sequence) Error\n");
-            if (n < 0) { 
-                error("sendto"); 
-            }
             continue;
         } else {
             if ((unsigned char)buf[2] == 0x00 && (unsigned char)buf[3] == 0x01) {
                 printf("AP: Received Association Request (size %d bytes). FCS verified: %u\n", n, computedFCS);
             
-                if (associated) {
-                    printf("Client is already associated. Ignoring new association request.\n");
-                    char alreadyMsg[] = "Already Associated";
-                    n = sendto(sock, alreadyMsg, sizeof(alreadyMsg), 0, (struct sockaddr *)&from, fromlen);
-                    if (n < 0) {
-                        error("sendto");
-                    }
-                    continue;
-                } else {
-                    associated = 1;  //mark client as associated
+                associated = 1;  //mark client as associated
 
-                    //association response frame
-                    char respFrame[3000];
-                    int offset = 0;
+                //association response frame
+                char respFrame[3000];
+                int offset = 0;
 
-                    //start of frame ID
-                    respFrame[offset++] = 0xFF;
-                    respFrame[offset++] = 0xFF;
+                //start of frame ID
+                respFrame[offset++] = 0xFF;
+                respFrame[offset++] = 0xFF;
 
-                    //for association response, type = 00, subtype = 0001
-                    respFrame[offset++] = 0x00;
-                    respFrame[offset++] = 0x02;
+                //for association response, type = 00, subtype = 0001
+                respFrame[offset++] = 0x00;
+                respFrame[offset++] = 0x02;
 
-                    //duration ID using random ones
-                    respFrame[offset++] = 0x12;
-                    respFrame[offset++] = 0x34;
+                //duration ID using random ones
+                respFrame[offset++] = 0x12;
+                respFrame[offset++] = 0x34;
 
-                    //address 1: client is the reciever 0x12, 0x45, 0xCC, 0xDD, 0xEE, 0x88
-                    unsigned char clientMAC[6] = {0x12, 0x45, 0xCC, 0xDD, 0xEE, 0x88};
-                    memcpy(respFrame + offset, clientMAC, 6);
-                    offset += 6;
+                //address 1: client is the reciever 0x12, 0x45, 0xCC, 0xDD, 0xEE, 0x88
+                unsigned char clientMAC[6] = {0x12, 0x45, 0xCC, 0xDD, 0xEE, 0x88};
+                memcpy(respFrame + offset, clientMAC, 6);
+                offset += 6;
 
-                    //address 2: AP’s 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xDD
-                    unsigned char apMAC[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xDD};
-                    memcpy(respFrame + offset, apMAC, 6);
-                    offset += 6;
+                //address 2: AP’s 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xDD
+                unsigned char apMAC[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xDD};
+                memcpy(respFrame + offset, apMAC, 6);
+                offset += 6;
 
-                    //ap address again
-                    memcpy(respFrame + offset, apMAC, 6);
-                    offset += 6;
+                //ap address again
+                memcpy(respFrame + offset, apMAC, 6);
+                offset += 6;
 
-                    //bridge (0s)
-                    unsigned char bridge[6] = {0, 0, 0, 0, 0, 0};
-                    memcpy(respFrame + offset, bridge, 6);
-                    offset += 6;
+                //bridge (0s)
+                unsigned char bridge[6] = {0, 0, 0, 0, 0, 0};
+                memcpy(respFrame + offset, bridge, 6);
+                offset += 6;
 
-                    //seq control
-                    respFrame[offset++] = 0x00;
-                    respFrame[offset++] = 0x00;
+                //seq control
+                respFrame[offset++] = 0x00;
+                respFrame[offset++] = 0x00;
 
-                    //paylaod
-                    char *payload = "Association Response";
-                    int payloadLen = strlen(payload);
-                    memcpy(respFrame + offset, payload, payloadLen);
-                    offset += payloadLen;
+                //paylaod
+                char *payload = "Association Response";
+                int payloadLen = strlen(payload);
+                memcpy(respFrame + offset, payload, payloadLen);
+                offset += payloadLen;
 
-                    //FCS reserving
-                    int fcsPosition = offset;
-                    respFrame[offset++] = 0x00;
-                    respFrame[offset++] = 0x00;
-                    respFrame[offset++] = 0x00;
-                    respFrame[offset++] = 0x00;
+                //FCS reserving
+                int fcsPosition = offset;
+                respFrame[offset++] = 0x00;
+                respFrame[offset++] = 0x00;
+                respFrame[offset++] = 0x00;
+                respFrame[offset++] = 0x00;
 
-                    //end of frame ID
-                    respFrame[offset++] = 0xFF;
-                    respFrame[offset++] = 0xFF;
+                //end of frame ID
+                respFrame[offset++] = 0xFF;
+                respFrame[offset++] = 0xFF;
 
-                    int respSize = offset;
+                int respSize = offset;
 
-                    uint32_t respChecksum = getCheckSumValue(respFrame, respSize, 0, 6);
+                uint32_t respChecksum = getCheckSumValue(respFrame, respSize, 0, 6);
 
-                    //put computed FCS into the reserved space
-                    respFrame[fcsPosition + 0] = (respChecksum >> 24) & 0xFF;
-                    respFrame[fcsPosition + 1] = (respChecksum >> 16) & 0xFF;
-                    respFrame[fcsPosition + 2] = (respChecksum >> 8)  & 0xFF;
-                    respFrame[fcsPosition + 3] = respChecksum & 0xFF;
+                //put computed FCS into the reserved space
+                respFrame[fcsPosition + 0] = (respChecksum >> 24) & 0xFF;
+                respFrame[fcsPosition + 1] = (respChecksum >> 16) & 0xFF;
+                respFrame[fcsPosition + 2] = (respChecksum >> 8)  & 0xFF;
+                respFrame[fcsPosition + 3] = respChecksum & 0xFF;
 
-                    //send association response
-                    int sendBytes = sendto(sock, respFrame, respSize, 0, (struct sockaddr *)&from, fromlen);
-                    if (sendBytes < 0) {
-                        error("sendto");
-                    }
-                    printf("AP: Built Association Response with FCS = %u. Sending response (size %d bytes).\n", respChecksum, respSize);
-                    continue;
+                //send association response
+                int sendBytes = sendto(sock, respFrame, respSize, 0, (struct sockaddr *)&from, fromlen);
+                if (sendBytes < 0) {
+                    error("sendto");
                 }
+                printf("AP: Built Association Response with FCS = %u. Sending response (size %d bytes).\n", respChecksum, respSize);
+                continue;
+                
             }
             else if ((unsigned char)buf[2] == 0x04 && (unsigned char)buf[3] == 0x01) {
                 printf("AP: Received Probe Request from client. Processing...\n");
@@ -514,7 +506,19 @@ int main(){
             
                 printf("AP: Built ACK for Data Frame (Frag %u, seq=0x%04X) with FCS=%u. Sent ACK (size %d bytes).\n",
                        fragNum + 1, seqControl, ackChecksum, ackFrameSize);
-            
+
+                //clear the buffer
+                memset(buf, 0, sizeof(buf));
+                
+                //clear the ackFrame
+                memset(ackFrame, 0, sizeof(ackFrame));
+
+                //clear the fullPayload
+                memset(fullPayload, 0, sizeof(fullPayload));
+
+                //clear the ackPayload
+                memset(ackPayload, 0, sizeof(ackPayload));
+
                 continue;
             }
         }
