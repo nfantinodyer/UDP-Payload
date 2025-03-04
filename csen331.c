@@ -13,6 +13,7 @@
 
 #define SERVER_PORT 4547
 #define SERVER_IP "127.0.0.1"
+#define MAX_PAYLOAD 2312
 
 /*
 * Takes in an input string and generates a 32-bit checksum hash value of type uint32_t
@@ -97,14 +98,16 @@ int main(){
     int bytesToSkipFromEnd = 4;
     char payload[] = "Hello World!";
     int FCS = 0;
-    char frame[100];
+    char frame[3000];
 
     uint32_t checksum = getCheckSumValue(&frame, sizeof(frame), bytesToSkipFromStart, bytesToSkipFromEnd);
     printf("Checksum: %u\n", checksum);
     */
+    char fullPayload[MAX_PAYLOAD];
+    memset(fullPayload, 0xFF, MAX_PAYLOAD);
 
-    char frame[100];
-    int offset=0;
+    char frame[3000];
+    int offset=0;    
 
     //start frame identifier
     frame[offset++] = 0xFF;
@@ -144,10 +147,13 @@ int main(){
     frame[offset++] = 0x00;
 
     //payload
-    char *payload = "Association Request";
-    int payloadLen = strlen(payload);
-    memcpy(frame + offset, payload, payloadLen);
-    offset += payloadLen;
+    const char *shortString = "Association Request";
+    int actualLen = strlen(shortString);
+    memcpy(fullPayload, shortString, actualLen);
+
+    // Now put this entire 2312-byte fullPayload into the frame
+    memcpy(frame + offset, fullPayload, MAX_PAYLOAD);
+    offset += MAX_PAYLOAD;
 
     //fcs position
     int fcsPosition = offset;
@@ -233,7 +239,7 @@ int main(){
     }
 
     //send probe request
-    char probeFrame[100];
+    char probeFrame[3000];
     int pOffset = 0;
 
     //start frame identifier
@@ -273,10 +279,14 @@ int main(){
     probeFrame[pOffset++] = 0x00;
 
     //payload
-    char *probePayload = "Probe Request";
+    memset(fullPayload, 0xFF, MAX_PAYLOAD);
+    const char *probePayload = "Probe Request";
     int probePayloadLen = strlen(probePayload);
-    memcpy(probeFrame + pOffset, probePayload, probePayloadLen);
-    pOffset += probePayloadLen;
+    memcpy(fullPayload, probePayload, probePayloadLen);
+
+    // Now put this entire 2312-byte fullPayload into the frame
+    memcpy(probeFrame + pOffset, fullPayload, MAX_PAYLOAD);
+    pOffset += MAX_PAYLOAD;
 
     //reserve 4 bytes for FCS
     int probeFcsPos = pOffset;
@@ -345,7 +355,7 @@ int main(){
     }
 
     //rts frame
-    char rtsFrame[100];
+    char rtsFrame[3000];
     int rtsOffset = 0;
     
     //start frame ID
@@ -386,10 +396,14 @@ int main(){
     rtsFrame[rtsOffset++] = 0x00;
     
     //payload
-    char *rtsPayload = "RTS";
+    memset(fullPayload, 0xFF, MAX_PAYLOAD);
+    const char *rtsPayload = "RTS";
     int rtsPayloadLen = strlen(rtsPayload);
-    memcpy(rtsFrame + rtsOffset, rtsPayload, rtsPayloadLen);
-    rtsOffset += rtsPayloadLen;
+    memcpy(fullPayload, rtsPayload, rtsPayloadLen);
+
+    // Now put this entire 2312-byte fullPayload into the frame
+    memcpy(rtsFrame + rtsOffset, fullPayload, MAX_PAYLOAD);
+    rtsOffset += MAX_PAYLOAD;
     
     //reserve 4 bytes for FCS
     int rtsFcsPos = rtsOffset;
@@ -455,7 +469,7 @@ int main(){
     }
 
     //send data frame
-    char dataFrame[100];
+    char dataFrame[3000];
     int dOffset = 0;
 
     //start frame ID
@@ -496,10 +510,14 @@ int main(){
     dataFrame[dOffset++] = 0x00;
 
     //payload
-    char *dataPayload = "DATA";
+    memset(fullPayload, 0xFF, MAX_PAYLOAD);
+    const char *dataPayload = "DATA";
     int dataPayloadLen = strlen(dataPayload);
-    memcpy(dataFrame + dOffset, dataPayload, dataPayloadLen);
-    dOffset += dataPayloadLen;
+    memcpy(fullPayload, dataPayload, dataPayloadLen);
+
+    // Now put this entire 2312-byte fullPayload into the frame
+    memcpy(dataFrame + dOffset, fullPayload, MAX_PAYLOAD);
+    dOffset += MAX_PAYLOAD;
     
     //reserve 4 bytes for FCS
     int dataFcsPos = dOffset;
@@ -565,7 +583,7 @@ int main(){
     }
 
     //error data frame
-    char errDataFrame[100];
+    char errDataFrame[3000];
     int errOffset = 0;
 
     //sstart frame ID
@@ -606,10 +624,14 @@ int main(){
     errDataFrame[errOffset++] = 0x00;
 
     //payload
-    char *errDataPayload = "DATA_ERROR";
+    memset(fullPayload, 0xFF, MAX_PAYLOAD);
+    const char *errDataPayload = "DATA_ERROR";
     int errDataPayloadLen = strlen(errDataPayload);
-    memcpy(errDataFrame + errOffset, errDataPayload, errDataPayloadLen);
-    errOffset += errDataPayloadLen;
+    memcpy(fullPayload, errDataPayload, errDataPayloadLen);
+
+    // Now put this entire 2312-byte fullPayload into the frame
+    memcpy(errDataFrame + errOffset, fullPayload, MAX_PAYLOAD);
+    errOffset += MAX_PAYLOAD;
 
     // Reserve 4 bytes for FCS
     int errFcsPos = errOffset;
@@ -658,7 +680,7 @@ int main(){
     printf("Client: Received error response from AP: %s\n", errResp);
 
     //multiple frames
-    char multiRTS[100];
+    char multiRTS[3000];
     int mOffset = 0;
 
     //start frame ID
@@ -697,10 +719,14 @@ int main(){
     multiRTS[mOffset++] = 0x00;
 
     //payload
-    char *rtsPayloadM = "RTS_MULTI";
+    memset(fullPayload, 0xFF, MAX_PAYLOAD);
+    const char *rtsPayloadM = "RTS_MULTI";
     int rtsPayloadMLen = strlen(rtsPayloadM);
-    memcpy(multiRTS + mOffset, rtsPayloadM, rtsPayloadMLen); 
-    mOffset += rtsPayloadMLen;
+    memcpy(fullPayload, rtsPayloadM, rtsPayloadMLen);
+
+    // Now put this entire 2312-byte fullPayload into the frame
+    memcpy(multiRTS + mOffset, fullPayload, MAX_PAYLOAD);
+    mOffset += MAX_PAYLOAD;
 
     // Reserve 4 bytes for FCS
     int multiRTSFcsPos = mOffset;
@@ -732,16 +758,22 @@ int main(){
 
     //step 2: send 5 fragmented (correct) data frames with decreasing Duration IDs.
     for (int i = 0; i < 5; i++) {
-        char fragFrame[100];
+        char fragFrame[3000];
         int fOffset = 0;
 
         //start of Frame ID
         fragFrame[fOffset++] = 0xFF; 
         fragFrame[fOffset++] = 0xFF;
 
-        //data frame: Type = 10, Subtype = 0000 -> first byte = 0x20, second = 0x01.
-        fragFrame[fOffset++] = 0x20; 
-        fragFrame[fOffset++] = 0x01;
+        uint8_t fcByte1 = 0x20; //0x20 = 0010 0000 means Protocol=0, Type=2, Subtype=0.
+        uint8_t fcByte2 = 0x01; //default: To DS=1
+        
+        if(i < 4) {  //if not the last fragment
+            fcByte2 |= 0x02;  //set More Fragments bit (0x02) so that the second byte becomes 0x03.
+        }
+
+        fragFrame[fOffset++] = fcByte1; 
+        fragFrame[fOffset++] = fcByte2;
 
         //duration ID: start at 12 and decrement per fragment.
         uint16_t duration = 12 - i; 
@@ -758,16 +790,19 @@ int main(){
         memcpy(fragFrame + fOffset, bridge_Data, 6); 
         fOffset += 6;
 
-        //sequence control (0x0000)
-        fragFrame[fOffset++] = 0x00; 
-        fragFrame[fOffset++] = 0x00;
+        //fixed sequence number 0x010 and using i as the fragment number
+        uint16_t seqControl = (0x010 << 4) | (i & 0x0F); //high 12 bits = 0x010, low 4 bits = fragment number
+        fragFrame[fOffset++] = (seqControl >> 8) & 0xFF;
+        fragFrame[fOffset++] = seqControl & 0xFF;
         
         //payload
-        char payloadFrag[50];
-        sprintf(payloadFrag, "DATA_MULTI_CORRECT_%d", i+1);
-        int payloadFragLen = strlen(payloadFrag);
-        memcpy(fragFrame + fOffset, payloadFrag, payloadFragLen);
-        fOffset += payloadFragLen;
+        memset(fullPayload, 0xFF, MAX_PAYLOAD);
+        char shortFragStr[100];
+        snprintf(shortFragStr, sizeof(shortFragStr), "DATA_MULTI_CORRECT_%d", i + 1);
+        int shortFragLen = strlen(shortFragStr);
+        memcpy(fullPayload, shortFragStr, shortFragLen);
+        memcpy(fragFrame + fOffset, fullPayload, MAX_PAYLOAD);
+        fOffset += MAX_PAYLOAD;
 
         //reserve 4 bytes for FCS
         int fragFcsPos = fOffset;
@@ -775,6 +810,8 @@ int main(){
         fragFrame[fOffset++] = 0x00; 
         fragFrame[fOffset++] = 0x00; 
         fragFrame[fOffset++] = 0x00;
+
+        //end of frame ID
         fragFrame[fOffset++] = 0xFF; 
         fragFrame[fOffset++] = 0xFF;
 
@@ -823,16 +860,22 @@ int main(){
 
     //step 3: send another 5 fragmented frames, with one correct and four error.
     for (int i = 0; i < 5; i++) {
-        char fragFrame[100];
+        char fragFrame[3000];
         int fOffset = 0;
 
         //start frame ID
         fragFrame[fOffset++] = 0xFF; 
         fragFrame[fOffset++] = 0xFF;
 
-        //data frame: Type = 10, Subtype = 0000 -> first byte = 0x20, second = 0x01.
-        fragFrame[fOffset++] = 0x20; 
-        fragFrame[fOffset++] = 0x01;
+        uint8_t fcByte1 = 0x20; //0x20 = 0010 0000 means Protocol=0, Type=2, Subtype=0.
+        uint8_t fcByte2 = 0x01; //default: To DS=1
+        
+        if(i < 4) {  //if not the last fragment
+            fcByte2 |= 0x02;  //set More Fragments bit (0x02) so that the second byte becomes 0x03.
+        }
+
+        fragFrame[fOffset++] = fcByte1; 
+        fragFrame[fOffset++] = fcByte2;
 
         //duration ID: start at 8 and decrement per fragment.
         uint16_t duration = 8 - i;
@@ -849,11 +892,13 @@ int main(){
         memcpy(fragFrame + fOffset, bridge_Data, 6); 
         fOffset += 6;
 
-        //sequence control (0x0000)
-        fragFrame[fOffset++] = 0x00; 
-        fragFrame[fOffset++] = 0x00;
+        //sequence control (0x010 with i as the fragment number)
+        uint16_t seqControl = (0x010 << 4) | (i & 0x0F);
+        fragFrame[fOffset++] = (seqControl >> 8) & 0xFF;
+        fragFrame[fOffset++] = seqControl & 0xFF;
 
         //payload
+        memset(fullPayload, 0xFF, MAX_PAYLOAD);
         char payloadFrag[50];
         if(i == 2){
             sprintf(payloadFrag, "DATA_MULTI_CORRECT_%d", i+1);
@@ -862,8 +907,9 @@ int main(){
         }
 
         int payloadFragLen = strlen(payloadFrag);
-        memcpy(fragFrame + fOffset, payloadFrag, payloadFragLen);
-        fOffset += payloadFragLen;
+        memcpy(fullPayload, payloadFrag, payloadFragLen);
+        memcpy(fragFrame + fOffset, fullPayload, MAX_PAYLOAD);
+        fOffset += MAX_PAYLOAD;
 
         //reserve 4 bytes for FCS
         int fragFcsPos = fOffset;
@@ -871,10 +917,12 @@ int main(){
         fragFrame[fOffset++] = 0x00; 
         fragFrame[fOffset++] = 0x00; 
         fragFrame[fOffset++] = 0x00;
+
+        //end of frame ID
         fragFrame[fOffset++] = 0xFF; 
         fragFrame[fOffset++] = 0xFF;
-        int fragFrameSize = fOffset;
 
+        int fragFrameSize = fOffset;
         uint32_t fragChecksum = getCheckSumValue(fragFrame, fragFrameSize, 0, 6);
         //corrupt FCS for error frames
         if(i != 2){

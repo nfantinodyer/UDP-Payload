@@ -7,6 +7,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 void error(char *msg){
     perror(msg);
@@ -77,7 +78,7 @@ int main(int argc, char *argv[]){
     int sock, length, fromlen, n;
     struct sockaddr_in server;
     struct sockaddr_in from;
-    char buf[1024];
+    char buf[3000];
     static int associated = 0; //flag to track if a client is already associated
 
     if (argc < 2){
@@ -130,11 +131,20 @@ int main(int argc, char *argv[]){
         
         //compare computed FCS with the received FCS.
         if (computedFCS != receivedFCS) {
-            printf("AP: FCS Error detected. Computed FCS = %u, but Received FCS = %u. Sending error message.\n", computedFCS, receivedFCS);
+            //if the frame is a Data frame (frame control first byte = 0x20), extract fragment info.
+            if ((unsigned char)buf[2] == 0x20) {
+                //assume sequence control is at bytes 30 and 31 in a 32-byte header.
+                uint16_t seqControl = (((unsigned char)buf[30]) << 8) | ((unsigned char)buf[31]);
+                uint8_t fragNum = seqControl & 0x0F; //lower 4 bits
+                printf("AP: FCS Error detected in Multi Data Fragment %u. Computed FCS = %u, but Received FCS = %u. No ACK sent.\n",
+                       fragNum+1, computedFCS, receivedFCS);
+            } else {
+                printf("AP: FCS Error detected. Computed FCS = %u, but Received FCS = %u. Sending error message.\n", computedFCS, receivedFCS);
+            }
             char errorMsg[] = "FCS (Frame Check Sequence) Error";
             n = sendto(sock, errorMsg, sizeof(errorMsg), 0, (struct sockaddr *)&from, fromlen);
-            if (n < 0) {
-                error("sendto");
+            if (n < 0) { 
+                error("sendto"); 
             }
             continue;
         } else {
@@ -382,18 +392,30 @@ int main(int argc, char *argv[]){
                 printf("AP: Built CTS Response with FCS = %u. Sent CTS Response (size %d bytes).\n", ctsChecksum, ctsFrameSize);
                 continue;
             }
-            else if ((unsigned char)buf[2] == 0x20 && (unsigned char)buf[3] == 0x01) {
+            else if ((unsigned char)buf[2] == 0x20) {
+                //parse the Frame Control field (2 bytes at positions 2 and 3)
+                uint8_t fcByte1 = (unsigned char)buf[2];
+                uint8_t fcByte2 = (unsigned char)buf[3];
+
+                //fcByte1 should be 0x20 (Data frame) and fcByte2 bit0 should be ToDS=1
+                if ((fcByte2 & 0x01) != 0x01) {
+                    printf("AP: Received Data Frame not destined for AP.\n");
+                    continue;
+                }
+
                 printf("AP: Received Data Frame from client. Processing payload...\n");
 
                 //determine if this is a multi fragment frame
-                int headerSize = 2 + 2 + (6*4) + 2; //2 (start) + 2(frame control) + 24(4 addresses) + 2(seq control)
-                char *payloadPtr = buf + headerSize;
+                int headerSize = 32; //2 (start) + 2(frame control) + 24(4 addresses) + 2(seq control)
+                
+                uint16_t seqControl = (((unsigned char)buf[30]) << 8) | ((unsigned char)buf[31]);
+                uint8_t fragNum = seqControl & 0x0F;  //lower 4 bits hold the fragment number
 
-                //check if payload contains the string "DATA_MULTI_ERROR"
-                if (strstr(payloadPtr, "DATA_MULTI_ERROR") != NULL) {
-                    printf("No ACK Received for Frame (Error Fragment).\n");
-                    continue;
-                }
+                //check the More Fragments flag.
+                //second byte of frame control (fcByte2), bit1 (mask 0x02) is More Fragments flag.
+                bool moreFragments = ((fcByte2 & 0x02) != 0);
+                printf("AP: Received Data Frame. Frame Control: 0x%02X 0x%02X; Sequence Control: 0x%04X (Fragment %u); More Frags: %s\n",
+                       fcByte1, fcByte2, seqControl, fragNum+1, moreFragments ? "true" : "false");
 
                 //ack frame
                 char ackFrame[100];
@@ -465,7 +487,8 @@ int main(int argc, char *argv[]){
                     error("sendto");
                 }
                 
-                printf("AP: Built ACK for Data Frame with FCS = %u. Sent ACK (size %d bytes).\n", ackChecksum, ackFrameSize);
+                printf("AP: Built ACK for Data Frame (Fragment %u) with FCS = %u. Sent ACK (size %d bytes).\n", 
+                    fragNum + 1, ackChecksum, ackFrameSize);
                 continue;
             }
         }
