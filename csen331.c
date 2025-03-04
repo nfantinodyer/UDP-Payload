@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdbool.h>
+#include <errno.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -358,19 +359,26 @@ int main(){
         perror("socket creation failed");
         exit(EXIT_FAILURE);
     }
-    
+
+    // *** Set 3-second receive timeout for ACKs ***
+    struct timeval tv;
+    tv.tv_sec = 3;
+    tv.tv_usec = 0;
+    if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
+        perror("setsockopt (SO_RCVTIMEO) failed");
+        close(sockfd);
+        exit(EXIT_FAILURE);
+    }
+
     struct sockaddr_in servaddr;
     memset(&servaddr, 0, sizeof(servaddr));
-    
     servaddr.sin_family = AF_INET;
     servaddr.sin_port = htons(SERVER_PORT);
     inet_pton(AF_INET, SERVER_IP, &servaddr.sin_addr);
     
     int n = sendto(sockfd, frame, totalFrameSize, 0, (struct sockaddr *)&servaddr, sizeof(servaddr));
     if (n < 0) {
-        perror("sendto failed");
-        close(sockfd);
-        exit(EXIT_FAILURE);
+        printf("Client: No response from server within 3 seconds.\n");
     } else {
         printf("Client: Association Request sent (%d bytes).\n", totalFrameSize);
     }
@@ -380,12 +388,11 @@ int main(){
     char resp[3000];
     struct sockaddr_in fromAddr;
     socklen_t addrLen = sizeof(fromAddr);
+    memset(resp, 0, sizeof(resp));
     n = recvfrom(sockfd, resp, sizeof(resp), 0, (struct sockaddr *)&fromAddr, &addrLen);
     //debugHexDump((const unsigned char*)resp, n, "Received Frame");
     if (n < 0) {
-        perror("recvfrom failed");
-        close(sockfd);
-        exit(EXIT_FAILURE);
+        printf("Client: No response from server within 3 seconds.\n");
     }
     printf("Client: Received Association Response (%d bytes) from AP.\n", n);
     
@@ -497,12 +504,11 @@ int main(){
 
     //receive probe response
     char probeResp[3000];
+    memset(resp, 0, sizeof(resp));
     n = recvfrom(sockfd, probeResp, sizeof(probeResp), 0, (struct sockaddr *)&servaddr, &addrLen);
     //debugHexDump((const unsigned char*)resp, n, "Received Frame");
     if(n < 0){
-        perror("recvfrom failed");
-        close(sockfd);
-        exit(EXIT_FAILURE);
+        printf("Client: No response from server within 3 seconds.\n");
     }
     printf("Client: Received Probe Response (%d bytes) from AP.\n", n);
     
@@ -613,12 +619,11 @@ int main(){
     
     //receive CTS response
     char ctsResp[3000];
+    memset(resp, 0, sizeof(resp));
     n = recvfrom(sockfd, ctsResp, sizeof(ctsResp), 0, (struct sockaddr *)&servaddr, &addrLen);
     //debugHexDump((const unsigned char*)resp, n, "Received Frame");
     if(n < 0){
-        perror("recvfrom failed");
-        close(sockfd);
-        exit(EXIT_FAILURE);
+        printf("Client: No response from server within 3 seconds.\n");
     }
     printf("Client: Received CTS Response (%d bytes) from AP.\n", n);
     
@@ -728,12 +733,11 @@ int main(){
 
     //receive ACK
     char ackResp[3000];
+    memset(resp, 0, sizeof(resp));
     n = recvfrom(sockfd, ackResp, sizeof(ackResp), 0, (struct sockaddr *)&servaddr, &addrLen);
     //debugHexDump((const unsigned char*)resp, n, "Received Frame");
     if(n < 0){
-        perror("recvfrom failed");
-        close(sockfd);
-        exit(EXIT_FAILURE);
+        printf("Client: No response from server within 3 seconds.\n");
     }
     printf("Client: Received ACK from AP (%d bytes).\n", n);
 
@@ -834,12 +838,11 @@ int main(){
 
     //receive the error message from the AP
     char errResp[3000];
+    memset(resp, 0, sizeof(resp));
     n = recvfrom(sockfd, errResp, sizeof(errResp), 0, (struct sockaddr *)&servaddr, &addrLen);
     //debugHexDump((const unsigned char*)resp, n, "Received Frame");
     if(n < 0){
-        perror("recvfrom failed");
-        close(sockfd);
-        exit(EXIT_FAILURE);
+        printf("Client: No response from server within 3 seconds.\n");
     }
     printf("Client: Received error response from AP: %s\n", errResp);
 
@@ -1026,6 +1029,7 @@ int main(){
             char resp[3000];
             memset(resp, 0, sizeof(resp));
             socklen_t addrLen = sizeof(servaddr);
+            
             int n = recvfrom(sockfd, resp, sizeof(resp), 0,
                             (struct sockaddr *)&servaddr, &addrLen);
             if (n <= 0) {

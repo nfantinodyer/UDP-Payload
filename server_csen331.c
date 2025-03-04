@@ -11,6 +11,9 @@
 
 #define MAX_PAYLOAD 2312
 
+static uint16_t ackedSeqControls[512];
+static int ackedSeqCount = 0;
+
 void error(char *msg){
     perror(msg);
     exit(0);
@@ -158,7 +161,8 @@ int main(){
                 printf("AP: FCS Error detected. Computed FCS = %u, but Received FCS = %u. Sending error message.\n", computedFCS, receivedFCS);
             }
             char errorMsg[] = "FCS (Frame Check Sequence) Error";
-            n = sendto(sock, errorMsg, sizeof(errorMsg), 0, (struct sockaddr *)&from, fromlen);
+            printf("AP: FCS (Frame Check Sequence) Error");
+            //n = sendto(sock, errorMsg, sizeof(errorMsg), 0, (struct sockaddr *)&from, fromlen);
             if (n < 0) { 
                 error("sendto"); 
             }
@@ -423,20 +427,38 @@ int main(){
                 uint8_t fcByte1 = (unsigned char)buf[2];
                 uint8_t fcByte2 = (unsigned char)buf[3];
             
-                //fcByte1 = 0x20 (Data frame), fcByte2 bit0 => ToDS=1
-                if ((fcByte2 & 0x01) != 0x01) {
-                    printf("AP: Received Data Frame not destined for AP.\n");
-                    continue;
-                }
-            
-                printf("AP: Received Data Frame from client. Processing payload...\n");
+                // parse the data frame, extract seqControl, etc.
                 uint16_t seqControl = (((unsigned char)buf[30]) << 8) | ((unsigned char)buf[31]);
-                uint8_t fragNum = seqControl & 0x0F;  //lower 4 bits for fragment
+                uint8_t fragNum = seqControl & 0x0F;  
                 bool moreFragments = ((fcByte2 & 0x02) != 0);
-            
+
                 printf("AP: Received Data Frame. Frame Control: 0x%02X 0x%02X; "
-                       "Sequence Control: 0x%04X (Fragment %u); More Frags: %s\n",
-                       fcByte1, fcByte2, seqControl, (fragNum + 1), moreFragments ? "true" : "false");
+                    "Sequence Control: 0x%04X (Fragment %u); More Frags: %s\n",
+                    fcByte1, fcByte2, seqControl, (fragNum + 1),
+                    moreFragments ? "true" : "false");
+
+                // 1) Check if we've already ACKed this seqControl
+                bool alreadyAcked = false;
+                for (int i = 0; i < ackedSeqCount; i++) {
+                    if (ackedSeqControls[i] == seqControl) {
+                        alreadyAcked = true;
+                        break;
+                    }
+                }
+
+                if (alreadyAcked) {
+                    // We do NOT re-ACK. Just ignore or print a message:
+                    printf("AP: Already ACKed seqControl=0x%04X. No new ACK sent.\n", seqControl);
+                    continue;  // skip building a new ACK frame
+                }
+
+                // 2) Otherwise mark it as ACKed
+                if (ackedSeqCount < 512) {
+                    ackedSeqControls[ackedSeqCount++] = seqControl;
+                } else {
+                    // If you run out of space, either expand the array or handle error
+                    printf("AP: ackedSeqControls array is full! Consider increasing its size.\n");
+                }
             
                 char ackFrame[3000];
                 int aOffset = 0;
