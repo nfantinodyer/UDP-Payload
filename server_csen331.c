@@ -76,20 +76,6 @@ uint32_t getCheckSumValue(const void *ptr, size_t size, ssize_t bytesToSkipFromS
     return checkSumValue;
 }
 
-void debugHexDump(const unsigned char* data, int length, const char* label)
-{
-    printf("=== HEX DUMP of %s (length %d) ===\n", label, length);
-
-    // Print 16 bytes per line for readability
-    for (int i = 0; i < length; i++) {
-        if (i % 16 == 0) {
-            printf("\n%04X: ", i);
-        }
-        printf("%02X ", data[i]);
-    }
-    printf("\n=== END of HEX DUMP ===\n\n");
-}
-
 int main(){
     int sock, length, fromlen, n;
     struct sockaddr_in server;
@@ -113,7 +99,6 @@ int main(){
 
     while(1){
         n = recvfrom(sock, buf, sizeof(buf), 0, (struct sockaddr *)&from, &fromlen);
-        //debugHexDump((const unsigned char*)buf, n, "Frame from Client");
         if (n < 0){
             error("recvfrom");
         }
@@ -502,7 +487,6 @@ int main(){
                 if (ackSendBytes < 0) {
                     error("sendto");
                 }
-                //debugHexDump((const unsigned char*)ackFrame, ackFrameSize, "ACK Frame to Client");
             
                 printf("AP: Built ACK for Data Frame (Frag %u, seq=0x%04X) with FCS=%u. Sent ACK (size %d bytes).\n",
                        fragNum + 1, seqControl, ackChecksum, ackFrameSize);

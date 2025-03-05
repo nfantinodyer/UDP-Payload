@@ -76,70 +76,33 @@ uint32_t getCheckSumValue(const void *ptr, size_t size, ssize_t bytesToSkipFromS
     return checkSumValue;
 }
 
-void debugHexDump(const unsigned char* data, int length, const char* label)
-{
-    printf("=== HEX DUMP of %s (length %d) ===\n", label, length);
-
-    // Print 16 bytes per line for readability
-    for (int i = 0; i < length; i++) {
-        if (i % 16 == 0) {
-            printf("\n%04X: ", i);
-        }
-        printf("%02X ", data[i]);
-    }
-    printf("\n=== END of HEX DUMP ===\n\n");
-}
-
-
 bool isValidAckFrame(const unsigned char* frame, int frameLen)
 {
-    //printf("\n[DEBUG isValidAckFrame] Called with frameLen=%d\n", frameLen);
-    //debugHexDump(frame, frameLen, "Candidate ACK Frame");
-
-    
     if (frameLen < 2350) {
-        //printf("[DEBUG isValidAckFrame] FAIL: frameLen < 40\n");
         return false;
     }
-    /*
-
-    
-    if (frame[0] != 0xFF || frame[1] != 0xFF) {
-        printf("[DEBUG isValidAckFrame] FAIL: Missing 0xFF 0xFF at start.\n");
-        return false;
-    }
-
-    if (frame[frameLen - 2] != 0xFF || frame[frameLen - 1] != 0xFF) {
-        printf("[DEBUG isValidAckFrame] FAIL: Missing 0xFF 0xFF at end.\n");
-        return false;
-    }
-    */
 
     uint32_t computedFCS = getCheckSumValue(frame, frameLen, 0, 6);
-    //printf("[DEBUG isValidAckFrame] Computed FCS=%u (0x%08X)\n", computedFCS, computedFCS);
 
     int fcsPos = frameLen - 6;
     uint32_t receivedFCS = ((uint32_t)frame[fcsPos] << 24) |
                            ((uint32_t)frame[fcsPos + 1] << 16) |
                            ((uint32_t)frame[fcsPos + 2] <<  8) |
                            ((uint32_t)frame[fcsPos + 3]);
-    //printf("[DEBUG isValidAckFrame] Received FCS=%u (0x%08X)\n", receivedFCS, receivedFCS);
 
     if (computedFCS != receivedFCS) {
-        //printf("[DEBUG isValidAckFrame] FAIL: computedFCS != receivedFCS\n");
         return false;
     }
 
     unsigned char fcByte1 = frame[2];
     unsigned char fcByte2 = frame[3];
-    //printf("[DEBUG isValidAckFrame] fcByte1=0x%02X fcByte2=0x%02X\n", fcByte1, fcByte2);
 
-    unsigned int protocolVersion = (fcByte1 & 0x03); // bits [1..0]
-    unsigned int frameType = (fcByte1 >> 2) & 0x03; // bits [3..2]
-    unsigned int frameSubtype = (fcByte1 >> 4) & 0x0F; // bits [7..4]
+    unsigned int protocolVersion = (fcByte1 & 0x03); //bits [1..0]
+    unsigned int frameType = (fcByte1 >> 2) & 0x03; //bits [3..2]
+    unsigned int frameSubtype = (fcByte1 >> 4) & 0x0F; //bits [7..4]
 
-    bool toDS = ((fcByte2 & 0x01) != 0); // bit [0]
-    bool fromDS = ((fcByte2 & 0x02) != 0); // bit [1]
+    bool toDS = ((fcByte2 & 0x01) != 0); //bit [0]
+    bool fromDS = ((fcByte2 & 0x02) != 0); //bit [1]
 
     //printf("[DEBUG isValidAckFrame] Parsed FC -> protocolVer=%u type=%u subtype=%u toDS=%d fromDS=%d\n", protocolVersion, frameType, frameSubtype, toDS, fromDS);
 
@@ -376,7 +339,6 @@ int main(){
     socklen_t addrLen = sizeof(fromAddr);
     memset(resp, 0, sizeof(resp));
     n = recvfrom(sockfd, resp, sizeof(resp), 0, (struct sockaddr *)&fromAddr, &addrLen);
-    //debugHexDump((const unsigned char*)resp, n, "Received Frame");
     if (n < 0) {
         printf("Client: No response from server within 3 seconds.\n");
     }
@@ -492,7 +454,6 @@ int main(){
     char probeResp[3000];
     memset(resp, 0, sizeof(resp));
     n = recvfrom(sockfd, probeResp, sizeof(probeResp), 0, (struct sockaddr *)&servaddr, &addrLen);
-    //debugHexDump((const unsigned char*)resp, n, "Received Frame");
     if(n < 0){
         printf("Client: No response from server within 3 seconds.\n");
     }
@@ -602,12 +563,10 @@ int main(){
         printf("Client: RTS frame sent (%d bytes) to AP.\n", rtsFrameSize);
     }
     
-
     //receive CTS response
     char ctsResp[3000];
     memset(resp, 0, sizeof(resp));
     n = recvfrom(sockfd, ctsResp, sizeof(ctsResp), 0, (struct sockaddr *)&servaddr, &addrLen);
-    //debugHexDump((const unsigned char*)resp, n, "Received Frame");
     if(n < 0){
         printf("Client: No response from server within 3 seconds.\n");
     }
@@ -720,7 +679,6 @@ int main(){
     char ackResp[3000];
     memset(resp, 0, sizeof(resp));
     n = recvfrom(sockfd, ackResp, sizeof(ackResp), 0, (struct sockaddr *)&servaddr, &addrLen);
-    //debugHexDump((const unsigned char*)resp, n, "Received Frame");
     if(n < 0){
         printf("Client: No response from server within 3 seconds.\n");
     }
@@ -826,7 +784,6 @@ int main(){
     char errResp[3000];
     memset(resp, 0, sizeof(resp));
     n = recvfrom(sockfd, errResp, sizeof(errResp), 0, (struct sockaddr *)&servaddr, &addrLen);
-    //debugHexDump((const unsigned char*)resp, n, "Received Frame");
     if(n < 0){
         printf("Client: No response from server within 3 seconds.\n");
     }
