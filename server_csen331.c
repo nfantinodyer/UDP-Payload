@@ -81,7 +81,6 @@ int main(){
     struct sockaddr_in server;
     struct sockaddr_in from;
     char buf[3000];
-    static int associated = 0; //flag to track if a client is already associated
 
     sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock < 0){
@@ -152,8 +151,6 @@ int main(){
         } else {
             if ((unsigned char)buf[2] == 0x00 && (unsigned char)buf[3] == 0x01) {
                 printf("AP: Received Association Request (size %d bytes). FCS verified: %u\n", n, computedFCS);
-            
-                associated = 1;  //mark client as associated
 
                 //association response frame
                 char respFrame[3000];
