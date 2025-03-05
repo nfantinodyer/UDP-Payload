@@ -433,7 +433,7 @@ int main(){
                 ackFrame[aOffset++] = 0xFF;
                 ackFrame[aOffset++] = 0xFF;
             
-                //Frame Control for ACK: Type=1, Subtype=1101 -> 0x1D,
+                //Frame Control for ACK: Type=1, Subtype=1101 -> 0xD4,
                 //AP->Client -> second byte=0x02 (FromDS=1, ToDS=0)
                 ackFrame[aOffset++] = 0xD4; // (binary 00011101)
                 ackFrame[aOffset++] = 0x02;

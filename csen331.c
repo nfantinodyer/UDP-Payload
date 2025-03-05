@@ -97,7 +97,7 @@ bool isValidAckFrame(const unsigned char* frame, int frameLen)
     //debugHexDump(frame, frameLen, "Candidate ACK Frame");
 
     
-    if (frameLen < 40) {
+    if (frameLen < 2350) {
         //printf("[DEBUG isValidAckFrame] FAIL: frameLen < 40\n");
         return false;
     }
@@ -237,49 +237,6 @@ bool isValidAckFrame(const unsigned char* frame, int frameLen)
     return true;
 }
 
-void drainUDPSocket(int sockfd)
-{
-    //get current flags
-    int oldFlags = fcntl(sockfd, F_GETFL, 0);
-    if (oldFlags < 0) {
-        perror("drainUDPSocket: fcntl(F_GETFL)");
-        return;
-    }
-
-    //put socket in non-blocking mode
-    if (fcntl(sockfd, F_SETFL, oldFlags | O_NONBLOCK) < 0) {
-        perror("drainUDPSocket: fcntl(F_SETFL, O_NONBLOCK)");
-        return;
-    }
-
-    //repeatedly read until EAGAIN/EWOULDBLOCK
-    while (true) {
-        char discardBuf[2048];
-        struct sockaddr_in discardAddr;
-        socklen_t discardLen = sizeof(discardAddr);
-
-        ssize_t n = recvfrom(sockfd, discardBuf, sizeof(discardBuf), 0,
-                             (struct sockaddr *)&discardAddr, &discardLen);
-        if (n < 0) {
-            //if it's a "would block" error, no more data left
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                break;
-            }
-            else {
-                perror("drainUDPSocket: recvfrom");
-                break;
-            }
-        }
-        //if we did successfully read something, we ignore it (discard),
-        //and loop again to see if there's more pending.
-    }
-
-    //restore original blocking mode
-    if (fcntl(sockfd, F_SETFL, oldFlags) < 0) {
-        perror("drainUDPSocket: fcntl(F_SETFL, restore)");
-    }
-}
-
 int main(){
     /*
     int protocolVersion = 0;
@@ -413,7 +370,6 @@ int main(){
         printf("Client: Association Request sent (%d bytes).\n", totalFrameSize);
     }
     
-    drainUDPSocket(sockfd);
     //recieve asoo responsce
     char resp[3000];
     struct sockaddr_in fromAddr;
@@ -450,7 +406,6 @@ int main(){
         printf("Client: Association Response FCS verified successfully: %u.\n", respComputedFCS);
     }
 
-    drainUDPSocket(sockfd);
     //send probe request
     char probeFrame[3000];
     int pOffset = 0;
@@ -533,7 +488,6 @@ int main(){
         printf("Client: Probe Request sent (%d bytes) to AP.\n", probeFrameSize);
     }
 
-    drainUDPSocket(sockfd);
     //receive probe response
     char probeResp[3000];
     memset(resp, 0, sizeof(resp));
@@ -648,7 +602,7 @@ int main(){
         printf("Client: RTS frame sent (%d bytes) to AP.\n", rtsFrameSize);
     }
     
-    drainUDPSocket(sockfd);
+
     //receive CTS response
     char ctsResp[3000];
     memset(resp, 0, sizeof(resp));
@@ -679,7 +633,7 @@ int main(){
     } else {
         printf("Client: CTS Response FCS verified successfully: %u.\n", ctsRespComputedFCS);
     }
-    drainUDPSocket(sockfd);
+   
     //send data frame
     char dataFrame[3000];
     int dOffset = 0;
@@ -761,7 +715,7 @@ int main(){
         printf("Client: Data Frame sent (%d bytes) to AP.\n", dataFrameSize);
     }
 
-    drainUDPSocket(sockfd);
+    
     //receive ACK
     char ackResp[3000];
     memset(resp, 0, sizeof(resp));
@@ -867,7 +821,7 @@ int main(){
         printf("Client: Error Data Frame sent (%d bytes) to AP.\n", errDataFrameSize);
     }
 
-    drainUDPSocket(sockfd);
+    
     //receive the error message from the AP
     char errResp[3000];
     memset(resp, 0, sizeof(resp));
@@ -876,7 +830,7 @@ int main(){
     if(n < 0){
         printf("Client: No response from server within 3 seconds.\n");
     }
-    drainUDPSocket(sockfd);
+    
     //multiple frames
     char multiRTS[3000];
     int mOffset = 0;
@@ -953,7 +907,15 @@ int main(){
     } else { 
         printf("Client: Multi-Frame RTS sent with Duration ID 12, FCS computed as %u (frame size: %d bytes).\n", multiRTSChecksum, multiRTSSize);
     }
-    drainUDPSocket(sockfd);
+    
+
+    //get cts response
+    n = recvfrom(sockfd, resp, sizeof(resp), 0, (struct sockaddr *)&servaddr, &addrLen);
+    if(n < 0){ 
+        printf("Client: No response from server within 3 seconds.\n"); 
+    } else { 
+        printf("Client: Received CTS Response (%d bytes) from AP.\n", n);
+    }
 
     //5 fragmented (correct) data frames with decreasing Duration IDs
     for (int i = 0; i < 5; i++) {
@@ -1043,7 +1005,7 @@ int main(){
         int ackReceived = 0;
 
         while (retry < 3 && !ackReceived) {
-            drainUDPSocket(sockfd);
+            
             //send the fragment
             int sentBytes = sendto(sockfd, fragFrame, fragFrameSize, 0,
                                 (struct sockaddr *)&servaddr, sizeof(servaddr));
@@ -1057,7 +1019,6 @@ int main(){
             char resp[3000];
             memset(resp, 0, sizeof(resp));
             socklen_t addrLen = sizeof(servaddr);
-            drainUDPSocket(sockfd);
             int n = recvfrom(sockfd, resp, sizeof(resp), 0,
                             (struct sockaddr *)&servaddr, &addrLen);
             if (n <= 0) {
@@ -1215,7 +1176,7 @@ int main(){
             char resp[3000];
             memset(resp, 0, sizeof(resp));
             socklen_t addrLen = sizeof(servaddr);
-            drainUDPSocket(sockfd);
+            
             int n = recvfrom(sockfd, resp, sizeof(resp), 0,
                             (struct sockaddr *)&servaddr, &addrLen);
             if (n <= 0) {
