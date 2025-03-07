@@ -227,7 +227,7 @@ int main(){
                 continue;
                 
             }
-            else if ((unsigned char)buf[2] == 0x04 && (unsigned char)buf[3] == 0x01) {
+            else if ((unsigned char)buf[2] == 0x04 && (unsigned char)buf[3] == 0x01) { //subtype = 0100 = 0x04 and ToDS=1, FromDS=0 
                 printf("AP: Received Probe Request from client. Processing...\n");
 
                 //build Probe Response frame

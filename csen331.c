@@ -232,7 +232,7 @@ int main(){
     memset(fullPayload, 0xFF, MAX_PAYLOAD);
 
     char frame[3000];
-    int offset=0;    
+    int offset=0;
 
     //start frame identifier
     frame[offset++] = 0xFF;
